@@ -110,6 +110,8 @@ def verify_pdf(pdf_bytes: bytes, status: dict) -> Path:
         raise AssertionError(
             f"PDF height is not based on final image size: PDF={height}, EXPECTED={expected_pdf_height}"
         )
+    if status["pdf_image_x"] != 0:
+        raise AssertionError(f"Expected image x=0 because image width equals PDF width, got {status['pdf_image_x']}")
     if output_path.stat().st_size <= 0:
         raise AssertionError("PDF file is empty")
     return output_path
@@ -157,6 +159,8 @@ def main() -> int:
         print(f"RIGHT_MARGIN_AFTER_PX={status['right_margin_after_px']}")
         print(f"PAGES={pages}")
         print(f"PDF_PAGE_SIZE={status['pdf_page_width']}x{status['pdf_page_height']}")
+        print(f"PDF_IMAGE_X={status['pdf_image_x']}")
+        print(f"PDF_IMAGE_PLACEMENT={status['pdf_image_placement']}")
         print(f"DEBUG_PNG={status['debug_png_path']}")
         return 0
     finally:

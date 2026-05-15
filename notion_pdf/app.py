@@ -829,22 +829,29 @@ def crop_png_to_content_area(
     def is_content_pixel(pixel: tuple[int, int, int]) -> bool:
         return sum(abs(pixel[i] - bg_color[i]) for i in range(3)) > 36
 
-    pixels = source.load()
-    pixel_left = source_width
-    pixel_right = -1
-    pixel_bottom = -1
-    for y in range(source_height):
-        row_has_content = False
-        for x in range(source_width):
-            if is_content_pixel(pixels[x, y]):
-                row_has_content = True
-                if x < pixel_left:
-                    pixel_left = x
-                if x > pixel_right:
-                    pixel_right = x
-        if row_has_content:
-            pixel_bottom = y
+    def measure_content_bounds(image: Image.Image) -> dict:
+        image_width, image_height = image.size
+        image_pixels = image.load()
+        left = image_width
+        right = -1
+        bottom = -1
+        for y in range(image_height):
+            row_has_content = False
+            for x in range(image_width):
+                if is_content_pixel(image_pixels[x, y]):
+                    row_has_content = True
+                    if x < left:
+                        left = x
+                    if x > right:
+                        right = x
+            if row_has_content:
+                bottom = y
+        return {"left": left, "right": right, "bottom": bottom}
 
+    source_bounds = measure_content_bounds(source)
+    pixel_left = source_bounds["left"]
+    pixel_right = source_bounds["right"]
+    pixel_bottom = source_bounds["bottom"]
     if pixel_right < pixel_left or pixel_bottom < 0:
         pixel_left = max(0, min(int(content_box["left"]), source_width - 1))
         pixel_right = max(pixel_left, min(int(content_box["right"]) - 1, source_width - 1))
@@ -877,10 +884,24 @@ def crop_png_to_content_area(
     cropped_width, cropped_height = cropped.size
     final = Image.new("RGB", (output_width, cropped_height), bg_color)
     final.paste(cropped, (paste_x, 0))
+
+    final_bounds = measure_content_bounds(final)
+    final_left_margin = max(0, final_bounds["left"])
+    final_right_margin = max(0, output_width - final_bounds["right"] - 1)
+    if final_bounds["right"] >= final_bounds["left"] and abs(final_left_margin - final_right_margin) >= 5:
+        actual_content_width = final_bounds["right"] - final_bounds["left"] + 1
+        if actual_content_width < output_width:
+            centered_x = (output_width - actual_content_width) // 2
+            content_only = final.crop((final_bounds["left"], 0, final_bounds["right"] + 1, cropped_height))
+            rebalanced = Image.new("RGB", (output_width, cropped_height), bg_color)
+            rebalanced.paste(content_only, (centered_x, 0))
+            final = rebalanced
+            final_bounds = measure_content_bounds(final)
+            final_left_margin = max(0, final_bounds["left"])
+            final_right_margin = max(0, output_width - final_bounds["right"] - 1)
+
     final.save(png_path)
 
-    final_left_margin = max(0, final_content_left)
-    final_right_margin = max(0, output_width - final_content_right)
     return {
         "original_image_width": source_width,
         "original_image_height": source_height,
@@ -893,8 +914,10 @@ def crop_png_to_content_area(
         "right_margin_px": final_right_margin,
         "left_margin_after_px": final_left_margin,
         "right_margin_after_px": final_right_margin,
-        "content_box_left": content_left,
-        "content_box_right": content_right + 1,
+        "pdf_image_x": 0,
+        "pdf_image_placement": "x=0 (image width equals PDF page width)",
+        "content_box_left": final_bounds["left"],
+        "content_box_right": final_bounds["right"] + 1,
         "content_box_bottom": int(content_box["bottom"]),
         "pixel_content_bottom": pixel_bottom + 1,
     }

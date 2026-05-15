@@ -72,6 +72,7 @@ class SinglePagePdfTest(unittest.TestCase):
             result["image_height"] * (PDF_WIDTH_PX / result["image_width"]),
             delta=1,
         )
+        self.assertEqual(result["pdf_image_x"], 0)
 
         print(f"DOM_SCROLL_HEIGHT={result['dom_scroll_height']}")
         print(f"BODY_SCROLL_HEIGHT={result['body_scroll_height']}")
@@ -93,6 +94,8 @@ class SinglePagePdfTest(unittest.TestCase):
         print(f"RIGHT_MARGIN_AFTER_PX={result['right_margin_after_px']}")
         print(f"PDF_PAGE_COUNT={result['pages']}")
         print(f"PDF_PAGE_SIZE={result['pdf_page_width']}x{result['pdf_page_height']}")
+        print(f"PDF_IMAGE_X={result['pdf_image_x']}")
+        print(f"PDF_IMAGE_PLACEMENT={result['pdf_image_placement']}")
         print(f"DEBUG_PNG={result['debug_png_path']}")
 
 
