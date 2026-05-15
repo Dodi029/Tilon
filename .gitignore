@@ -4,3 +4,60 @@ dist/
 build/
 *.log
 __pycache__/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+out/
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+
+# Logs
+*.log
+logs/
+temp/
+tmp/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+
+# Large / VM files
+*.iso
+*.vhd
+*.vhdx
+*.avhdx
+*.qcow2
+*.ova
+*.ovf
+*.bak
+*.zip
+*.7z
+*.rar
+
+# Secrets
+*password*
+*secret*
+*token*
+credentials/
+certs/
+keys/
+*.pfx
+*.pem
+*.key
