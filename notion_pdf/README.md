@@ -34,10 +34,12 @@ $env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
 3. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
 4. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
 5. 가장 큰 높이를 viewport와 screenshot `clip.height`에 명시해 전체 높이 PNG를 캡처합니다.
-6. PNG 높이가 측정된 콘텐츠 높이보다 짧으면 실패 처리합니다.
-7. `img2pdf`가 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
-8. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
-9. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+6. PNG 높이가 expected height보다 작아도 `max(150px, expected height의 1%)` 안이면 정상으로 처리합니다.
+7. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
+8. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
+9. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
+10. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+11. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
 
 ## 테스트
 
@@ -53,7 +55,7 @@ python -m unittest discover -s tests
 python tests\run_server_pdf_flow.py
 ```
 
-성공하면 `SERVER_URL`, `JOB_ID`, DOM/body/wrapper 높이, PNG 크기, PDF 페이지 수, PDF 페이지 크기, debug PNG 경로가 출력됩니다.
+성공하면 `SERVER_URL`, `JOB_ID`, DOM/body/wrapper 높이, expected height, screenshot PNG height, height difference, allowed tolerance, 원본 PNG 크기, crop 후 PNG 크기, 제거된 하단 여백, 좌우 여백, PDF 페이지 수, PDF 페이지 크기, debug PNG 경로가 출력됩니다.
 
 ## 주의
 

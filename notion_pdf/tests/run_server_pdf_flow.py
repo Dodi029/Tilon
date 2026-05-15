@@ -91,15 +91,24 @@ def verify_pdf(pdf_bytes: bytes, status: dict) -> Path:
     height = float(page.mediabox.height)
     if height <= width:
         raise AssertionError(f"Expected tall single-page PDF, got {width}x{height}")
-    if status["image_height"] < status["capture_height"]:
+    if status["height_difference"] > status["allowed_tolerance"]:
         raise AssertionError(
-            f"Screenshot is shorter than capture height: PNG={status['image_height']}, "
-            f"CAPTURE={status['capture_height']}"
+            f"Screenshot height difference exceeds tolerance: DIFF={status['height_difference']}, "
+            f"TOLERANCE={status['allowed_tolerance']}"
         )
-    if status["image_height"] < status["max_element_bottom"]:
+    if status["image_height"] + status["allowed_tolerance"] < status["content_box_bottom"]:
         raise AssertionError(
-            f"Screenshot does not include the last measured element: PNG={status['image_height']}, "
-            f"MAX_ELEMENT_BOTTOM={status['max_element_bottom']}"
+            f"Cropped image does not include the measured content bottom: PNG={status['image_height']}, "
+            f"CONTENT_BOX_BOTTOM={status['content_box_bottom']}, TOLERANCE={status['allowed_tolerance']}"
+        )
+    if abs(status["left_margin_px"] - status["right_margin_px"]) > 1:
+        raise AssertionError(
+            f"Expected symmetric side margins, got L={status['left_margin_px']}, R={status['right_margin_px']}"
+        )
+    expected_pdf_height = status["image_height"] * (794 / status["image_width"])
+    if abs(height - expected_pdf_height) > 1:
+        raise AssertionError(
+            f"PDF height is not based on final image size: PDF={height}, EXPECTED={expected_pdf_height}"
         )
     if output_path.stat().st_size <= 0:
         raise AssertionError("PDF file is empty")
@@ -132,7 +141,20 @@ def main() -> int:
         print(f"BODY_SCROLL_HEIGHT={status['body_scroll_height']}")
         print(f"CONTENT_WRAPPER_SCROLL_HEIGHT={status['content_wrapper_scroll_height']}")
         print(f"MAX_ELEMENT_BOTTOM={status['max_element_bottom']}")
-        print(f"SCREENSHOT_PNG={status['image_width']}x{status['image_height']}")
+        print(f"EXPECTED_HEIGHT={status['expected_height']}")
+        print(f"SCREENSHOT_PNG_HEIGHT={status['original_image_height']}")
+        print(f"HEIGHT_DIFFERENCE={status['height_difference']}")
+        print(f"ALLOWED_TOLERANCE={status['allowed_tolerance']}")
+        print(f"ORIGINAL_SCREENSHOT_PNG={status['original_image_width']}x{status['original_image_height']}")
+        print(f"CONTENT_BOUNDING_BOX=left:{status['content_box_left']},right:{status['content_box_right']},bottom:{status['pixel_content_bottom']}")
+        print(f"CROPPED_IMAGE={status['cropped_image_width']}x{status['cropped_image_height']}")
+        print(f"REMOVED_BOTTOM_MARGIN_PX={status['removed_bottom_margin_px']}")
+        print(f"LEFT_MARGIN_BEFORE_PX={status['left_margin_before_px']}")
+        print(f"RIGHT_MARGIN_BEFORE_PX={status['right_margin_before_px']}")
+        print(f"LEFT_MARGIN_PX={status['left_margin_px']}")
+        print(f"RIGHT_MARGIN_PX={status['right_margin_px']}")
+        print(f"LEFT_MARGIN_AFTER_PX={status['left_margin_after_px']}")
+        print(f"RIGHT_MARGIN_AFTER_PX={status['right_margin_after_px']}")
         print(f"PAGES={pages}")
         print(f"PDF_PAGE_SIZE={status['pdf_page_width']}x{status['pdf_page_height']}")
         print(f"DEBUG_PNG={status['debug_png_path']}")

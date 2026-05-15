@@ -633,6 +633,9 @@ function showError(msg) {
 jobs = {}  # job_id -> {status, filename, path, error}
 PDF_WIDTH_PX = 794
 PDF_EXTRA_HEIGHT_PX = 200
+PDF_MIN_BOTTOM_MARGIN_PX = 40
+PDF_MIN_SIDE_MARGIN_PX = 40
+PDF_HEIGHT_TOLERANCE_PX = 150
 
 def make_job_id():
     import uuid
@@ -702,6 +705,67 @@ def get_page_height_metrics(page) -> dict:
     metrics["max_height"] = max(metrics["max_height"], 1)
     return metrics
 
+def get_content_box_metrics(page) -> dict:
+    """Measure the visible content bounding box, preferring Notion content wrappers."""
+    metrics = page.evaluate("""() => {
+        const selectors = [
+            '.notion-page-content',
+            '.notion-page-content-inner',
+            'main',
+            '[role="main"]',
+            'article'
+        ];
+        const usableRect = (el) => {
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+                return null;
+            }
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+            return {
+                left: rect.left + window.scrollX,
+                top: rect.top + window.scrollY,
+                right: rect.right + window.scrollX,
+                bottom: rect.bottom + window.scrollY
+            };
+        };
+        const wrapperRects = selectors.flatMap((selector) =>
+            Array.from(document.querySelectorAll(selector)).map(usableRect).filter(Boolean)
+        );
+        const contentRects = Array.from(document.body.querySelectorAll('*')).flatMap((el) => {
+            const tag = el.tagName.toLowerCase();
+            if (['script', 'style', 'meta', 'link', 'noscript'].includes(tag)) {
+                return [];
+            }
+            const text = (el.innerText || el.textContent || '').trim();
+            const hasContent = text || ['img', 'svg', 'canvas', 'video', 'table', 'iframe'].includes(tag);
+            if (!hasContent) {
+                return [];
+            }
+            const rect = usableRect(el);
+            return rect ? [rect] : [];
+        });
+        const rects = wrapperRects.length ? wrapperRects : contentRects;
+        if (!rects.length) {
+            return {left: 0, top: 0, right: document.documentElement.clientWidth, bottom: 1, width: document.documentElement.clientWidth, height: 1};
+        }
+        const left = Math.floor(Math.min(...rects.map((rect) => rect.left)));
+        const top = Math.floor(Math.min(...rects.map((rect) => rect.top)));
+        const right = Math.ceil(Math.max(...rects.map((rect) => rect.right)));
+        const bottom = Math.ceil(Math.max(...rects.map((rect) => rect.bottom)));
+        return {
+            left,
+            top,
+            right,
+            bottom,
+            width: Math.max(1, right - left),
+            height: Math.max(1, bottom - top)
+        };
+    }""")
+    return {key: int(round(value or 0)) for key, value in metrics.items()}
+
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
 
@@ -733,6 +797,108 @@ def get_png_size(png_path: str) -> tuple[int, int]:
     height = int.from_bytes(header[20:24], "big")
     return width, height
 
+def crop_png_to_content_area(
+    png_path: str,
+    content_box: dict,
+    output_width: int,
+    min_side_margin: int = PDF_MIN_SIDE_MARGIN_PX,
+    min_bottom_margin: int = PDF_MIN_BOTTOM_MARGIN_PX,
+) -> dict:
+    from collections import Counter
+    from PIL import Image
+
+    with Image.open(png_path) as image:
+        source = image.convert("RGB")
+
+    source_width, source_height = source.size
+
+    sample_points = []
+    for x in range(0, source_width, max(1, source_width // 16)):
+        sample_points.append((x, 0))
+        sample_points.append((x, source_height - 1))
+    for y in range(0, source_height, max(1, source_height // 32)):
+        sample_points.append((0, y))
+        sample_points.append((source_width - 1, y))
+
+    def quantized(pixel: tuple[int, int, int]) -> tuple[int, int, int]:
+        return tuple((channel // 8) * 8 for channel in pixel)
+
+    bg_bucket = Counter(quantized(source.getpixel(point)) for point in sample_points).most_common(1)[0][0]
+    bg_color = tuple(min(255, channel + 4) for channel in bg_bucket)
+
+    def is_content_pixel(pixel: tuple[int, int, int]) -> bool:
+        return sum(abs(pixel[i] - bg_color[i]) for i in range(3)) > 36
+
+    pixels = source.load()
+    pixel_left = source_width
+    pixel_right = -1
+    pixel_bottom = -1
+    for y in range(source_height):
+        row_has_content = False
+        for x in range(source_width):
+            if is_content_pixel(pixels[x, y]):
+                row_has_content = True
+                if x < pixel_left:
+                    pixel_left = x
+                if x > pixel_right:
+                    pixel_right = x
+        if row_has_content:
+            pixel_bottom = y
+
+    if pixel_right < pixel_left or pixel_bottom < 0:
+        pixel_left = max(0, min(int(content_box["left"]), source_width - 1))
+        pixel_right = max(pixel_left, min(int(content_box["right"]) - 1, source_width - 1))
+        pixel_bottom = max(0, min(int(content_box["bottom"]) - 1, source_height - 1))
+
+    dom_left = max(0, min(int(content_box["left"]), source_width - 1))
+    dom_right = max(dom_left, min(int(content_box["right"]) - 1, source_width - 1))
+    left_before = pixel_left
+    right_before = source_width - pixel_right - 1
+
+    content_left = min(pixel_left, dom_left)
+    content_right = max(pixel_right, dom_right)
+    content_width = content_right - content_left + 1
+    bottom = max(1, min(pixel_bottom + 1 + min_bottom_margin, source_height))
+
+    if content_width + (min_side_margin * 2) <= output_width:
+        final_content_left = (output_width - content_width) // 2
+        final_content_right = final_content_left + content_width
+        crop_left = content_left
+        crop_right = content_right + 1
+        paste_x = final_content_left
+    else:
+        crop_left = max(0, min(content_left, source_width - output_width))
+        crop_right = min(source_width, crop_left + output_width)
+        paste_x = 0
+        final_content_left = content_left - crop_left
+        final_content_right = content_right - crop_left + 1
+
+    cropped = source.crop((crop_left, 0, crop_right, bottom))
+    cropped_width, cropped_height = cropped.size
+    final = Image.new("RGB", (output_width, cropped_height), bg_color)
+    final.paste(cropped, (paste_x, 0))
+    final.save(png_path)
+
+    final_left_margin = max(0, final_content_left)
+    final_right_margin = max(0, output_width - final_content_right)
+    return {
+        "original_image_width": source_width,
+        "original_image_height": source_height,
+        "cropped_image_width": output_width,
+        "cropped_image_height": cropped_height,
+        "removed_bottom_margin_px": source_height - cropped_height,
+        "left_margin_before_px": left_before,
+        "right_margin_before_px": right_before,
+        "left_margin_px": final_left_margin,
+        "right_margin_px": final_right_margin,
+        "left_margin_after_px": final_left_margin,
+        "right_margin_after_px": final_right_margin,
+        "content_box_left": content_left,
+        "content_box_right": content_right + 1,
+        "content_box_bottom": int(content_box["bottom"]),
+        "pixel_content_bottom": pixel_bottom + 1,
+    }
+
 def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_WIDTH_PX) -> dict:
     import img2pdf
 
@@ -743,24 +909,32 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
     page.wait_for_timeout(250)
 
     final_metrics = get_page_height_metrics(page)
-    capture_height = max(initial_metrics["max_height"], final_metrics["max_height"], 1080)
+    content_box = get_content_box_metrics(page)
+    capture_height = max(initial_metrics["max_height"], final_metrics["max_height"], content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX, 1080)
     page.set_viewport_size({"width": width, "height": capture_height})
     page.wait_for_timeout(250)
+    content_box = get_content_box_metrics(page)
+    capture_height = max(capture_height, content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX)
     page.screenshot(
         path=png_path,
         type="png",
         clip={"x": 0, "y": 0, "width": width, "height": capture_height},
     )
 
-    image_width, image_height = get_png_size(png_path)
+    original_image_width, original_image_height = get_png_size(png_path)
     expected_height = max(final_metrics["max_height"], capture_height)
-    if image_height < expected_height:
+    height_difference = max(0, expected_height - original_image_height)
+    allowed_tolerance = max(PDF_HEIGHT_TOLERANCE_PX, (expected_height + 99) // 100)
+    if height_difference > allowed_tolerance:
         raise RuntimeError(
             f"Screenshot is shorter than measured content. "
             f"DOM={final_metrics['dom_scroll_height']}, BODY={final_metrics['body_scroll_height']}, "
             f"WRAPPER={final_metrics['content_wrapper_scroll_height']}, "
-            f"PNG={image_width}x{image_height}, EXPECTED_HEIGHT={expected_height}"
+            f"PNG={original_image_width}x{original_image_height}, EXPECTED_HEIGHT={expected_height}, "
+            f"DIFF={height_difference}, TOLERANCE={allowed_tolerance}"
         )
+    crop_metrics = crop_png_to_content_area(png_path, content_box, width)
+    image_width, image_height = get_png_size(png_path)
     debug_png_path = DEBUG_OUTPUT_FOLDER / "debug_fullpage.png"
     shutil.copyfile(png_path, debug_png_path)
     layout_fun = img2pdf.get_layout_fun((image_width, image_height))
@@ -784,8 +958,14 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
         "content_wrapper_scroll_height": final_metrics["content_wrapper_scroll_height"],
         "max_element_bottom": final_metrics["max_element_bottom"],
         "capture_height": capture_height,
+        "expected_height": expected_height,
+        "height_difference": height_difference,
+        "allowed_tolerance": allowed_tolerance,
+        "original_image_width": original_image_width,
+        "original_image_height": original_image_height,
         "image_width": image_width,
         "image_height": image_height,
+        **crop_metrics,
         "pdf_page_width": pdf_info["pdf_page_width"],
         "pdf_page_height": pdf_info["pdf_page_height"],
         "debug_png_path": str(debug_png_path),

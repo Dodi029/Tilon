@@ -50,8 +50,14 @@ class SinglePagePdfTest(unittest.TestCase):
         self.assertGreater(result["dom_scroll_height"], 9000)
         self.assertGreater(result["body_scroll_height"], 9000)
         self.assertGreater(result["max_element_bottom"], 9000)
-        self.assertGreaterEqual(result["image_height"], result["capture_height"])
+        self.assertLessEqual(result["height_difference"], result["allowed_tolerance"])
+        self.assertGreaterEqual(
+            result["image_height"] + result["allowed_tolerance"],
+            result["content_box_bottom"],
+        )
         self.assertGreater(result["image_height"], 9000)
+        self.assertGreater(result["removed_bottom_margin_px"], 0)
+        self.assertLessEqual(abs(result["left_margin_px"] - result["right_margin_px"]), 1)
         self.assertTrue(Path(result["debug_png_path"]).exists())
 
         pdf_width, pdf_height = pdf_page_size(output_path)
@@ -61,12 +67,30 @@ class SinglePagePdfTest(unittest.TestCase):
             result["image_height"] / result["image_width"],
             delta=0.02,
         )
+        self.assertAlmostEqual(
+            pdf_height,
+            result["image_height"] * (PDF_WIDTH_PX / result["image_width"]),
+            delta=1,
+        )
 
         print(f"DOM_SCROLL_HEIGHT={result['dom_scroll_height']}")
         print(f"BODY_SCROLL_HEIGHT={result['body_scroll_height']}")
         print(f"CONTENT_WRAPPER_SCROLL_HEIGHT={result['content_wrapper_scroll_height']}")
         print(f"MAX_ELEMENT_BOTTOM={result['max_element_bottom']}")
-        print(f"SCREENSHOT_PNG={result['image_width']}x{result['image_height']}")
+        print(f"EXPECTED_HEIGHT={result['expected_height']}")
+        print(f"SCREENSHOT_PNG_HEIGHT={result['original_image_height']}")
+        print(f"HEIGHT_DIFFERENCE={result['height_difference']}")
+        print(f"ALLOWED_TOLERANCE={result['allowed_tolerance']}")
+        print(f"ORIGINAL_SCREENSHOT_PNG={result['original_image_width']}x{result['original_image_height']}")
+        print(f"CONTENT_BOUNDING_BOX=left:{result['content_box_left']},right:{result['content_box_right']},bottom:{result['pixel_content_bottom']}")
+        print(f"CROPPED_IMAGE={result['cropped_image_width']}x{result['cropped_image_height']}")
+        print(f"REMOVED_BOTTOM_MARGIN_PX={result['removed_bottom_margin_px']}")
+        print(f"LEFT_MARGIN_BEFORE_PX={result['left_margin_before_px']}")
+        print(f"RIGHT_MARGIN_BEFORE_PX={result['right_margin_before_px']}")
+        print(f"LEFT_MARGIN_PX={result['left_margin_px']}")
+        print(f"RIGHT_MARGIN_PX={result['right_margin_px']}")
+        print(f"LEFT_MARGIN_AFTER_PX={result['left_margin_after_px']}")
+        print(f"RIGHT_MARGIN_AFTER_PX={result['right_margin_after_px']}")
         print(f"PDF_PAGE_COUNT={result['pages']}")
         print(f"PDF_PAGE_SIZE={result['pdf_page_width']}x{result['pdf_page_height']}")
         print(f"DEBUG_PNG={result['debug_png_path']}")
