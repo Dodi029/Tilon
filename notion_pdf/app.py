@@ -1,11 +1,13 @@
 from flask import Flask, request, jsonify, send_file, render_template_string
-import os, tempfile, time, threading
+import os, shutil, tempfile, time, threading
 from datetime import datetime
 from pathlib import Path
 
 app = Flask(__name__)
 UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "notion_pdf"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
+DEBUG_OUTPUT_FOLDER = Path(__file__).resolve().parent / "output"
+DEBUG_OUTPUT_FOLDER.mkdir(exist_ok=True)
 
 HTML_PAGE = '''<!DOCTYPE html>
 <html lang="ko">
@@ -642,18 +644,63 @@ def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tup
     return filename, str(UPLOAD_FOLDER / filename)
 
 # ─── PDF conversion core ─────────────────────────────────────
-def get_document_height(page) -> int:
-    """Measure the rendered document height before adding PDF bottom padding."""
-    height = page.evaluate("""() => {
-        const height = Math.max(
-            document.body.scrollHeight,
-            document.documentElement.scrollHeight,
-            document.body.offsetHeight,
-            document.documentElement.offsetHeight
+def get_page_height_metrics(page) -> dict:
+    """Measure document, body, wrapper, and element-bottom heights."""
+    metrics = page.evaluate("""() => {
+        const doc = document.documentElement;
+        const body = document.body;
+        const selectors = [
+            '.notion-page-content',
+            '.notion-page-content-inner',
+            '.notion-frame',
+            '.notion-scroller',
+            'main',
+            '[role="main"]',
+            '#root',
+            '#__next'
+        ];
+        const wrapperHeights = selectors.flatMap((selector) =>
+            Array.from(document.querySelectorAll(selector)).map((el) => {
+                const rect = el.getBoundingClientRect();
+                return Math.ceil(Math.max(
+                    el.scrollHeight || 0,
+                    el.offsetHeight || 0,
+                    rect.bottom + window.scrollY
+                ));
+            })
         );
-        return Math.ceil(height);
+        const elementBottoms = Array.from(document.body.querySelectorAll('*')).map((el) => {
+            const rect = el.getBoundingClientRect();
+            return Math.ceil(rect.bottom + window.scrollY);
+        });
+        const domScrollHeight = Math.ceil(Math.max(
+            doc.scrollHeight || 0,
+            doc.offsetHeight || 0,
+            doc.clientHeight || 0
+        ));
+        const bodyScrollHeight = Math.ceil(Math.max(
+            body.scrollHeight || 0,
+            body.offsetHeight || 0,
+            body.clientHeight || 0
+        ));
+        const contentWrapperScrollHeight = Math.max(0, ...wrapperHeights);
+        const maxElementBottom = Math.max(0, ...elementBottoms);
+        return {
+            dom_scroll_height: domScrollHeight,
+            body_scroll_height: bodyScrollHeight,
+            content_wrapper_scroll_height: contentWrapperScrollHeight,
+            max_element_bottom: maxElementBottom,
+            max_height: Math.ceil(Math.max(
+                domScrollHeight,
+                bodyScrollHeight,
+                contentWrapperScrollHeight,
+                maxElementBottom
+            ))
+        };
     }""")
-    return max(int(height), 1)
+    metrics = {key: int(value or 0) for key, value in metrics.items()}
+    metrics["max_height"] = max(metrics["max_height"], 1)
+    return metrics
 
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
@@ -665,6 +712,17 @@ def assert_single_page_pdf(pdf_path: str) -> int:
             "문서 높이가 Chromium 또는 PDF 뷰어의 단일 페이지 한계를 초과했을 수 있습니다."
         )
     return page_count
+
+def get_pdf_page_info(pdf_path: str) -> dict:
+    from pypdf import PdfReader
+
+    reader = PdfReader(pdf_path)
+    page = reader.pages[0]
+    return {
+        "pages": len(reader.pages),
+        "pdf_page_width": float(page.mediabox.width),
+        "pdf_page_height": float(page.mediabox.height),
+    }
 
 def get_png_size(png_path: str) -> tuple[int, int]:
     with open(png_path, "rb") as fp:
@@ -679,21 +737,58 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
     import img2pdf
 
     png_path = str(Path(output_path).with_suffix(".png"))
-    rendered_height = get_document_height(page)
-    page.set_viewport_size({"width": width, "height": min(max(rendered_height, 1080), 16384)})
-    page.screenshot(path=png_path, full_page=True, type="png")
+    initial_metrics = get_page_height_metrics(page)
+    capture_height = max(initial_metrics["max_height"], 1080)
+    page.set_viewport_size({"width": width, "height": capture_height})
+    page.wait_for_timeout(250)
+
+    final_metrics = get_page_height_metrics(page)
+    capture_height = max(initial_metrics["max_height"], final_metrics["max_height"], 1080)
+    page.set_viewport_size({"width": width, "height": capture_height})
+    page.wait_for_timeout(250)
+    page.screenshot(
+        path=png_path,
+        type="png",
+        clip={"x": 0, "y": 0, "width": width, "height": capture_height},
+    )
 
     image_width, image_height = get_png_size(png_path)
+    expected_height = max(final_metrics["max_height"], capture_height)
+    if image_height < expected_height:
+        raise RuntimeError(
+            f"Screenshot is shorter than measured content. "
+            f"DOM={final_metrics['dom_scroll_height']}, BODY={final_metrics['body_scroll_height']}, "
+            f"WRAPPER={final_metrics['content_wrapper_scroll_height']}, "
+            f"PNG={image_width}x{image_height}, EXPECTED_HEIGHT={expected_height}"
+        )
+    debug_png_path = DEBUG_OUTPUT_FOLDER / "debug_fullpage.png"
+    shutil.copyfile(png_path, debug_png_path)
     layout_fun = img2pdf.get_layout_fun((image_width, image_height))
     with open(output_path, "wb") as fp:
         fp.write(img2pdf.convert(png_path, layout_fun=layout_fun))
 
     Path(png_path).unlink(missing_ok=True)
     page_count = assert_single_page_pdf(output_path)
+    pdf_info = get_pdf_page_info(output_path)
+    pdf_ratio = pdf_info["pdf_page_height"] / max(pdf_info["pdf_page_width"], 1)
+    image_ratio = image_height / max(image_width, 1)
+    if abs(pdf_ratio - image_ratio) > 0.02:
+        raise RuntimeError(
+            f"PDF ratio does not match screenshot ratio. "
+            f"IMAGE={image_width}x{image_height}, PDF={pdf_info['pdf_page_width']}x{pdf_info['pdf_page_height']}"
+        )
     result = {
         "pages": page_count,
+        "dom_scroll_height": final_metrics["dom_scroll_height"],
+        "body_scroll_height": final_metrics["body_scroll_height"],
+        "content_wrapper_scroll_height": final_metrics["content_wrapper_scroll_height"],
+        "max_element_bottom": final_metrics["max_element_bottom"],
+        "capture_height": capture_height,
         "image_width": image_width,
         "image_height": image_height,
+        "pdf_page_width": pdf_info["pdf_page_width"],
+        "pdf_page_height": pdf_info["pdf_page_height"],
+        "debug_png_path": str(debug_png_path),
         "pdf_path": output_path,
     }
     print(
@@ -869,4 +964,7 @@ def download(job_id):
 
 if __name__ == '__main__':
     print("서버 시작: http://localhost:5000")
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", "5000"))
+    debug = os.environ.get("FLASK_DEBUG", "1") not in ("0", "false", "False")
+    print(f"Server URL: http://localhost:{port}")
+    app.run(host="127.0.0.1", debug=debug, port=port)

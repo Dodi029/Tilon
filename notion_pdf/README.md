@@ -1,65 +1,62 @@
-# 📄 Notion → 페이지 분할 없는 PDF 변환기
+# Notion PDF 변환기
 
-Notion 페이지를 한 장으로 이어지는 PDF로 변환해주는 로컬 웹 앱이에요.
+Notion HTML 파일 또는 공개 URL을 긴 1페이지 PDF로 변환하는 로컬 Flask 앱입니다. A4 폭 기준인 794px에 맞춰 전체 페이지를 Playwright로 렌더링하고, `page.pdf()`가 아니라 전체 페이지 PNG 스크린샷을 만든 뒤 `img2pdf`로 1페이지 PDF를 생성합니다.
 
----
-
-## 🚀 설치 및 실행
-
-### 1. 필요 패키지 설치
+## 설치
 
 ```bash
-pip install flask playwright beautifulsoup4 requests
+python -m pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-### 2. 서버 실행
+## 서버 실행
 
 ```bash
-cd notion_pdf
 python app.py
 ```
 
-### 3. 브라우저에서 열기
+기본 접속 URL은 다음과 같습니다.
 
-```
+```text
 http://localhost:5000
 ```
 
----
+다른 포트를 쓰려면 `PORT` 환경변수를 지정합니다.
 
-## 📌 사용법
+```powershell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+```
 
-### URL 입력 방식
-1. Notion 페이지를 **웹에 게시(Public)** 상태로 설정
-   - Notion 페이지 → 우측 상단 `공유` → `웹에 게시` 켜기
-2. URL을 입력하고 변환 시작
+## PDF 생성 방식
 
-### 파일 업로드 방식
-1. Notion에서 **HTML로 내보내기**
-   - 페이지 우측 상단 `···` → `내보내기` → `HTML` 선택
-2. 다운로드된 `.html` 파일을 업로드
+1. Flask 서버가 HTML 파일 업로드 또는 공개 URL을 받습니다.
+2. Playwright Chromium이 페이지를 렌더링합니다.
+3. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
+4. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
+5. 가장 큰 높이를 viewport와 screenshot `clip.height`에 명시해 전체 높이 PNG를 캡처합니다.
+6. PNG 높이가 측정된 콘텐츠 높이보다 짧으면 실패 처리합니다.
+7. `img2pdf`가 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
+8. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+9. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
 
----
+## 테스트
 
-## ⚙️ 변환 옵션
+단위 테스트:
 
-| 옵션 | 설명 |
-|------|------|
-| 용지 너비 | A4(794px), A3(1123px), Letter(816px), 넓게(1200px) |
-| 여백 | 없음 ~ 넓게 선택 가능 |
+```bash
+python -m unittest discover -s tests
+```
 
----
+서버 실행, URL 접속 확인, HTML 업로드, PDF 생성, 다운로드, pypdf 1페이지 검증을 한 번에 수행:
 
-## 🛠 작동 원리
+```bash
+python tests\run_server_pdf_flow.py
+```
 
-- **Playwright(Chromium)** 를 사용해 페이지를 실제 브라우저로 렌더링
-- 페이지의 실제 전체 높이를 측정해서 `@page { size: Wpx Hpx }` 로 설정
-- `page-break` 관련 CSS를 모두 비활성화해서 끊김 없는 PDF 생성
+성공하면 `SERVER_URL`, `JOB_ID`, DOM/body/wrapper 높이, PNG 크기, PDF 페이지 수, PDF 페이지 크기, debug PNG 경로가 출력됩니다.
 
----
+## 주의
 
-## 📋 요구사항
-
-- Python 3.8+
-- 인터넷 연결 (URL 방식 사용 시)
+- 공개 Notion URL은 브라우저에서 직접 열리는 상태여야 합니다.
+- PDF 업로드를 다시 긴 1페이지로 재렌더링하는 기능은 현재 지원하지 않습니다. HTML 파일 또는 URL을 사용하세요.
+- 생성 파일은 OS 임시 폴더 아래 `notion_pdf` 디렉터리에 저장됩니다.

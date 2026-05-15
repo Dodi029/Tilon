@@ -1,0 +1,36 @@
+현재 결과는 실패다.
+
+PDF 페이지 수는 1페이지지만, 실제 Notion 문서 전체 내용이 들어가지 않고 중간에서 잘린다.
+즉, pypdf의 PAGES=1 검증만으로 성공 처리하면 안 된다.
+
+문제:
+page.screenshot(full_page=True)가 실제 콘텐츠 전체 높이를 캡처하지 못하고 있다.
+현재 PDF는 1페이지이지만 원래 16페이지 이상 분량이어야 할 문서 중 일부만 들어간다.
+
+다시 수정해라.
+
+필수 수정 방향:
+1. PDF 페이지 수가 1인지뿐 아니라, 원본 HTML의 실제 콘텐츠 전체 높이를 측정해라.
+2. Playwright에서 document.documentElement.scrollHeight, document.body.scrollHeight, 그리고 실제 Notion 콘텐츠 wrapper의 scrollHeight를 모두 측정해라.
+3. 가장 큰 값을 실제 캡처 높이로 사용해라.
+4. viewport 높이를 해당 전체 높이에 맞춘 뒤 screenshot을 찍어라.
+5. full_page=True만 믿지 말고, clip 옵션으로 x=0, y=0, width=실제폭, height=실제콘텐츠높이를 명시해서 캡처해라.
+6. 캡처된 PNG 높이가 실제 콘텐츠 높이와 비슷한지 검증해라.
+7. PDF 변환 후 pypdf로 1페이지인지 확인해라.
+8. PDF 높이가 PNG 높이 비율에 맞게 충분히 길게 생성됐는지 확인해라.
+9. 테스트 결과에 다음 값을 반드시 출력해라.
+   - DOM scrollHeight
+   - body scrollHeight
+   - content wrapper scrollHeight
+   - screenshot PNG width/height
+   - PDF page count
+   - PDF page width/height
+10. 원본이 기존 page.pdf() 기준 16페이지 분량이라면, PNG/PDF 높이도 그에 맞게 충분히 길어야 한다.
+11. 현재처럼 1페이지지만 내용이 잘린 결과를 성공으로 처리하지 마라.
+
+추가 요구:
+- 실제 생성된 PDF를 기준으로 사람이 볼 때 아래 내용까지 포함됐는지 확인할 수 있도록 마지막 텍스트 또는 마지막 섹션 근처가 캡처됐는지 검증해라.
+- 가능하면 screenshot PNG도 output/debug_fullpage.png로 저장해라.
+- PDF가 잘렸는지 판단하기 위해 debug PNG와 PDF 크기를 docs\테스트결과.md에 기록해라.
+
+git commit/push는 하지마.
