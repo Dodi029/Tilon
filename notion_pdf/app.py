@@ -201,7 +201,7 @@ HTML_PAGE = '''<!DOCTYPE html>
 
   .options {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 0.75rem;
     margin-bottom: 1.5rem;
   }
@@ -525,6 +525,8 @@ async function convert() {
 
   const width = document.getElementById('pageWidth').value;
   const margin = document.getElementById('margin').value;
+  const scaleEl = document.getElementById('qualityScale');
+  const scale = scaleEl ? scaleEl.value : '2';
 
   try {
     let response;
@@ -537,7 +539,7 @@ async function convert() {
       response = await fetch('/convert/url', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin) })
+        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale) })
       });
     } else {
       if (!selectedFile) { alert('파일을 선택해주세요.'); btn.disabled=false; return; }
@@ -546,6 +548,7 @@ async function convert() {
       fd.append('file', selectedFile);
       fd.append('width', width);
       fd.append('margin', margin);
+      fd.append('scale', scale);
       response = await fetch('/convert/file', { method: 'POST', body: fd });
     }
 
@@ -636,6 +639,7 @@ PDF_EXTRA_HEIGHT_PX = 200
 PDF_MIN_BOTTOM_MARGIN_PX = 40
 PDF_MIN_SIDE_MARGIN_PX = 40
 PDF_HEIGHT_TOLERANCE_PX = 150
+PDF_BACKGROUND_COLOR = (255, 255, 255)
 
 def make_job_id():
     import uuid
@@ -801,14 +805,20 @@ def crop_png_to_content_area(
     png_path: str,
     content_box: dict,
     output_width: int,
+    coordinate_scale: int = 1,
     min_side_margin: int = PDF_MIN_SIDE_MARGIN_PX,
     min_bottom_margin: int = PDF_MIN_BOTTOM_MARGIN_PX,
 ) -> dict:
     from collections import Counter
-    from PIL import Image
+    from PIL import Image, ImageChops
 
     with Image.open(png_path) as image:
-        source = image.convert("RGB")
+        if image.mode in ("RGBA", "LA"):
+            background = Image.new("RGBA", image.size, (*PDF_BACKGROUND_COLOR, 255))
+            background.alpha_composite(image.convert("RGBA"))
+            source = background.convert("RGB")
+        else:
+            source = image.convert("RGB")
 
     source_width, source_height = source.size
 
@@ -824,50 +834,42 @@ def crop_png_to_content_area(
         return tuple((channel // 8) * 8 for channel in pixel)
 
     bg_bucket = Counter(quantized(source.getpixel(point)) for point in sample_points).most_common(1)[0][0]
-    bg_color = tuple(min(255, channel + 4) for channel in bg_bucket)
+    bg_color = PDF_BACKGROUND_COLOR
 
     def is_content_pixel(pixel: tuple[int, int, int]) -> bool:
         return sum(abs(pixel[i] - bg_color[i]) for i in range(3)) > 36
 
     def measure_content_bounds(image: Image.Image) -> dict:
         image_width, image_height = image.size
-        image_pixels = image.load()
-        left = image_width
-        right = -1
-        bottom = -1
-        for y in range(image_height):
-            row_has_content = False
-            for x in range(image_width):
-                if is_content_pixel(image_pixels[x, y]):
-                    row_has_content = True
-                    if x < left:
-                        left = x
-                    if x > right:
-                        right = x
-            if row_has_content:
-                bottom = y
-        return {"left": left, "right": right, "bottom": bottom}
+        background = Image.new("RGB", image.size, bg_color)
+        bbox = ImageChops.difference(image, background).getbbox()
+        if not bbox:
+            return {"left": image_width, "right": -1, "bottom": -1}
+        left, _top, right, bottom = bbox
+        return {"left": left, "right": right - 1, "bottom": bottom - 1}
 
     source_bounds = measure_content_bounds(source)
     pixel_left = source_bounds["left"]
     pixel_right = source_bounds["right"]
     pixel_bottom = source_bounds["bottom"]
     if pixel_right < pixel_left or pixel_bottom < 0:
-        pixel_left = max(0, min(int(content_box["left"]), source_width - 1))
-        pixel_right = max(pixel_left, min(int(content_box["right"]) - 1, source_width - 1))
-        pixel_bottom = max(0, min(int(content_box["bottom"]) - 1, source_height - 1))
+        pixel_left = max(0, min(int(content_box["left"] * coordinate_scale), source_width - 1))
+        pixel_right = max(pixel_left, min(int(content_box["right"] * coordinate_scale) - 1, source_width - 1))
+        pixel_bottom = max(0, min(int(content_box["bottom"] * coordinate_scale) - 1, source_height - 1))
 
-    dom_left = max(0, min(int(content_box["left"]), source_width - 1))
-    dom_right = max(dom_left, min(int(content_box["right"]) - 1, source_width - 1))
+    dom_left = max(0, min(int(content_box["left"] * coordinate_scale), source_width - 1))
+    dom_right = max(dom_left, min(int(content_box["right"] * coordinate_scale) - 1, source_width - 1))
     left_before = pixel_left
     right_before = source_width - pixel_right - 1
 
     content_left = min(pixel_left, dom_left)
     content_right = max(pixel_right, dom_right)
     content_width = content_right - content_left + 1
-    bottom = max(1, min(pixel_bottom + 1 + min_bottom_margin, source_height))
+    scaled_bottom_margin = min_bottom_margin * coordinate_scale
+    scaled_side_margin = min_side_margin * coordinate_scale
+    bottom = max(1, min(pixel_bottom + 1 + scaled_bottom_margin, source_height))
 
-    if content_width + (min_side_margin * 2) <= output_width:
+    if content_width + (scaled_side_margin * 2) <= output_width:
         final_content_left = (output_width - content_width) // 2
         final_content_right = final_content_left + content_width
         crop_left = content_left
@@ -918,13 +920,15 @@ def crop_png_to_content_area(
         "pdf_image_placement": "x=0 (image width equals PDF page width)",
         "content_box_left": final_bounds["left"],
         "content_box_right": final_bounds["right"] + 1,
-        "content_box_bottom": int(content_box["bottom"]),
+        "content_box_bottom": int(content_box["bottom"] * coordinate_scale),
         "pixel_content_bottom": pixel_bottom + 1,
+        "background_rgb": f"{bg_color[0]},{bg_color[1]},{bg_color[2]}",
     }
 
-def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_WIDTH_PX) -> dict:
+def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_WIDTH_PX, scale: int = 1) -> dict:
     import img2pdf
 
+    scale = max(1, min(int(scale), 3))
     png_path = str(Path(output_path).with_suffix(".png"))
     initial_metrics = get_page_height_metrics(page)
     capture_height = max(initial_metrics["max_height"], 1080)
@@ -956,11 +960,19 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
             f"PNG={original_image_width}x{original_image_height}, EXPECTED_HEIGHT={expected_height}, "
             f"DIFF={height_difference}, TOLERANCE={allowed_tolerance}"
         )
-    crop_metrics = crop_png_to_content_area(png_path, content_box, width)
+    output_image_width = width * scale
+    crop_metrics = crop_png_to_content_area(
+        png_path,
+        content_box,
+        output_image_width,
+        coordinate_scale=scale,
+    )
     image_width, image_height = get_png_size(png_path)
     debug_png_path = DEBUG_OUTPUT_FOLDER / "debug_fullpage.png"
     shutil.copyfile(png_path, debug_png_path)
-    layout_fun = img2pdf.get_layout_fun((image_width, image_height))
+    pdf_width = width
+    pdf_height = image_height * (pdf_width / image_width)
+    layout_fun = img2pdf.get_layout_fun((pdf_width, pdf_height))
     with open(output_path, "wb") as fp:
         fp.write(img2pdf.convert(png_path, layout_fun=layout_fun))
 
@@ -984,13 +996,17 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
         "expected_height": expected_height,
         "height_difference": height_difference,
         "allowed_tolerance": allowed_tolerance,
+        "scale": scale,
         "original_image_width": original_image_width,
         "original_image_height": original_image_height,
         "image_width": image_width,
         "image_height": image_height,
         **crop_metrics,
+        "final_image_width": image_width,
+        "final_image_height": image_height,
         "pdf_page_width": pdf_info["pdf_page_width"],
         "pdf_page_height": pdf_info["pdf_page_height"],
+        "pdf_file_size": Path(output_path).stat().st_size,
         "debug_png_path": str(debug_png_path),
         "pdf_path": output_path,
     }
@@ -1000,15 +1016,15 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
     )
     return result
 
-def html_to_seamless_pdf(html_content: str, output_path: str, width: int = 794, margin: int = 40):
+def html_to_seamless_pdf(html_content: str, output_path: str, width: int = 794, margin: int = 40, scale: int = 1):
     """Convert HTML to a single-page (no page breaks) PDF using Playwright."""
     from playwright.sync_api import sync_playwright
 
     pdf_width = PDF_WIDTH_PX
     css_inject = f"""
     <style>
-    html, body {{ margin: 0 !important; min-height: 100% !important; }}
-    body {{ width: {pdf_width}px !important; max-width: {pdf_width}px !important; margin: 0 auto !important; padding: {margin}px !important; padding-bottom: {margin + PDF_EXTRA_HEIGHT_PX}px !important; box-sizing: border-box !important; }}
+    html, body {{ margin: 0 !important; min-height: 100% !important; background: #fff !important; }}
+    body {{ width: {pdf_width}px !important; max-width: {pdf_width}px !important; margin: 0 auto !important; padding: {margin}px !important; padding-bottom: {margin + PDF_EXTRA_HEIGHT_PX}px !important; box-sizing: border-box !important; background: #fff !important; }}
     img {{ max-width: 100% !important; }}
     </style>
     """
@@ -1022,14 +1038,14 @@ def html_to_seamless_pdf(html_content: str, output_path: str, width: int = 794, 
         browser = p.chromium.launch()
         page = browser.new_page(
             viewport={"width": pdf_width, "height": 1080},
-            device_scale_factor=1,
+            device_scale_factor=max(1, min(int(scale), 3)),
         )
         page.set_content(html_content, wait_until="networkidle")
-        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width)
+        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale)
         browser.close()
         return result
 
-def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: int = 40):
+def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: int = 40, scale: int = 1):
     """Fetch Notion URL and convert to seamless PDF."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
@@ -1044,7 +1060,7 @@ def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: in
             browser = p.chromium.launch()
             page = browser.new_page(
                 viewport={"width": pdf_width, "height": 1080},
-                device_scale_factor=1,
+                device_scale_factor=max(1, min(int(scale), 3)),
             )
 
             stage = "URL 접속"
@@ -1068,13 +1084,13 @@ def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: in
 
             stage = "PDF 스타일 적용"
             page.add_style_tag(content=f"""
-                html, body {{ margin: 0 !important; min-height: 100% !important; }}
-                body {{ width: {pdf_width}px !important; max-width: {pdf_width}px !important; padding: {margin}px !important; padding-bottom: {margin + PDF_EXTRA_HEIGHT_PX}px !important; box-sizing: border-box !important; }}
+                html, body {{ margin: 0 !important; min-height: 100% !important; background: #fff !important; }}
+                body {{ width: {pdf_width}px !important; max-width: {pdf_width}px !important; padding: {margin}px !important; padding-bottom: {margin + PDF_EXTRA_HEIGHT_PX}px !important; box-sizing: border-box !important; background: #fff !important; }}
                 img {{ max-width: 100% !important; }}
             """)
 
             stage = "전체 페이지 PNG 캡처 및 PDF 생성"
-            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width)
+            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale)
         except Exception as e:
             raise RuntimeError(
                 f"Notion URL 변환 실패 ({stage}). URL: {url}. 접근 상태: {status}. "
@@ -1095,6 +1111,7 @@ def convert_url():
     url = data.get('url', '').strip()
     width = int(data.get('width', 794))
     margin = int(data.get('margin', 40))
+    scale = int(data.get('scale', 2))
 
     if not url.startswith('http'):
         return jsonify({'error': '올바른 URL을 입력해주세요.'}), 400
@@ -1105,7 +1122,7 @@ def convert_url():
     def run():
         try:
             output_filename, out = make_timestamped_pdf_path(job_id)
-            result = url_to_seamless_pdf(url, out, width, margin)
+            result = url_to_seamless_pdf(url, out, width, margin, scale)
             jobs[job_id] = {'status': 'done', 'filename': output_filename, 'path': out, 'error': None, **result}
         except Exception as e:
             jobs[job_id] = {'status': 'error', 'filename': None, 'path': None, 'error': str(e)}
@@ -1118,6 +1135,7 @@ def convert_file():
     f = request.files.get('file')
     width = int(request.form.get('width', 794))
     margin = int(request.form.get('margin', 40))
+    scale = int(request.form.get('scale', 2))
 
     if not f:
         return jsonify({'error': '파일이 없습니다.'}), 400
@@ -1137,7 +1155,7 @@ def convert_file():
             if ext in ('.html', '.htm'):
                 with open(in_path, 'r', encoding='utf-8', errors='ignore') as fp:
                     html = fp.read()
-                result = html_to_seamless_pdf(html, out, width, margin)
+                result = html_to_seamless_pdf(html, out, width, margin, scale)
             elif ext == '.pdf':
                 # PDF → re-render as single page via html wrapper trick
                 # Just copy with a note (full re-render from PDF is complex)
@@ -1170,4 +1188,4 @@ if __name__ == '__main__':
     port = int(os.environ.get("PORT", "5000"))
     debug = os.environ.get("FLASK_DEBUG", "1") not in ("0", "false", "False")
     print(f"Server URL: http://localhost:{port}")
-    app.run(host="127.0.0.1", debug=debug, port=port)
+    app.run(host="127.0.0.1", debug=debug, port=port, threaded=True)

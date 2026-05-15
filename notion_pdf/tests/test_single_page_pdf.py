@@ -20,9 +20,8 @@ def pdf_page_size(pdf_path: Path) -> tuple[float, float]:
 
 
 class SinglePagePdfTest(unittest.TestCase):
-    def test_long_html_exports_as_one_page_pdf(self):
-        output_path = Path(tempfile.gettempdir()) / "notion_pdf_single_page_test.pdf"
-        html = """
+    def make_long_html(self, blocks_count: int = 35) -> str:
+        return """
         <!doctype html>
         <html>
         <head>
@@ -38,7 +37,11 @@ class SinglePagePdfTest(unittest.TestCase):
           <p id="last">Last line must remain visible.</p>
         </body>
         </html>
-        """.format(blocks="\n".join("<div class='block'>Block %d</div>" % i for i in range(35)))
+        """.format(blocks="\n".join("<div class='block'>Block %d</div>" % i for i in range(blocks_count)))
+
+    def test_long_html_exports_as_one_page_pdf(self):
+        output_path = Path(tempfile.gettempdir()) / "notion_pdf_single_page_test.pdf"
+        html = self.make_long_html()
 
         result = html_to_seamless_pdf(html, str(output_path), width=PDF_WIDTH_PX, margin=40)
 
@@ -97,6 +100,29 @@ class SinglePagePdfTest(unittest.TestCase):
         print(f"PDF_IMAGE_X={result['pdf_image_x']}")
         print(f"PDF_IMAGE_PLACEMENT={result['pdf_image_placement']}")
         print(f"DEBUG_PNG={result['debug_png_path']}")
+
+    def test_scale_2_uses_higher_resolution_image_but_keeps_pdf_width(self):
+        html = self.make_long_html(blocks_count=12)
+        scale1_path = Path(tempfile.gettempdir()) / "notion_pdf_scale_1_test.pdf"
+        scale2_path = Path(tempfile.gettempdir()) / "notion_pdf_scale_2_test.pdf"
+
+        scale1 = html_to_seamless_pdf(html, str(scale1_path), width=PDF_WIDTH_PX, margin=40, scale=1)
+        scale2 = html_to_seamless_pdf(html, str(scale2_path), width=PDF_WIDTH_PX, margin=40, scale=2)
+
+        self.assertEqual(count_pdf_pages(scale1_path), 1)
+        self.assertEqual(count_pdf_pages(scale2_path), 1)
+        self.assertEqual(scale1["image_width"], PDF_WIDTH_PX)
+        self.assertEqual(scale2["image_width"], PDF_WIDTH_PX * 2)
+        self.assertEqual(scale1["pdf_page_width"], PDF_WIDTH_PX)
+        self.assertEqual(scale2["pdf_page_width"], PDF_WIDTH_PX)
+        self.assertGreater(scale2["pdf_file_size"], scale1["pdf_file_size"])
+
+        print(f"SCALE1_FINAL_IMAGE={scale1['image_width']}x{scale1['image_height']}")
+        print(f"SCALE1_PDF_PAGE_SIZE={scale1['pdf_page_width']}x{scale1['pdf_page_height']}")
+        print(f"SCALE1_FILE_SIZE={scale1['pdf_file_size']}")
+        print(f"SCALE2_FINAL_IMAGE={scale2['image_width']}x{scale2['image_height']}")
+        print(f"SCALE2_PDF_PAGE_SIZE={scale2['pdf_page_width']}x{scale2['pdf_page_height']}")
+        print(f"SCALE2_FILE_SIZE={scale2['pdf_file_size']}")
 
 
 if __name__ == "__main__":

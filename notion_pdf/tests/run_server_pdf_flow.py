@@ -64,9 +64,9 @@ def create_pdf(sample_path: Path) -> tuple[str, bytes, dict]:
     response.raise_for_status()
     job_id = response.json()["job_id"]
 
-    deadline = time.time() + 90
+    deadline = time.time() + 180
     while time.time() < deadline:
-        status_response = requests.get(f"{BASE_URL}/job/{job_id}", timeout=5)
+        status_response = requests.get(f"{BASE_URL}/job/{job_id}", timeout=30)
         status_response.raise_for_status()
         status = status_response.json()
         if status["status"] == "done":
@@ -161,6 +161,8 @@ def main() -> int:
         print(f"PDF_PAGE_SIZE={status['pdf_page_width']}x{status['pdf_page_height']}")
         print(f"PDF_IMAGE_X={status['pdf_image_x']}")
         print(f"PDF_IMAGE_PLACEMENT={status['pdf_image_placement']}")
+        print(f"SCALE={status['scale']}")
+        print(f"PDF_FILE_SIZE={status['pdf_file_size']}")
         print(f"DEBUG_PNG={status['debug_png_path']}")
         return 0
     finally:
