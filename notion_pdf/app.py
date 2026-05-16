@@ -452,10 +452,12 @@ HTML_PAGE = '''<!DOCTYPE html>
         </select>
       </div>
       <div class="option-group">
-        <label class="label">OCR</label>
-        <select id="enableOcr">
-          <option value="1">자동</option>
-          <option value="0">끄기</option>
+        <label class="label">텍스트 레이어</label>
+        <select id="textLayerMode">
+          <option value="hybrid">DOM + OCR</option>
+          <option value="dom">DOM</option>
+          <option value="ocr">OCR</option>
+          <option value="none">없음</option>
         </select>
       </div>
     </div>
@@ -542,8 +544,9 @@ async function convert() {
   const margin = document.getElementById('margin').value;
   const scaleEl = document.getElementById('qualityScale');
   const scale = scaleEl ? scaleEl.value : '2';
-  const ocrEl = document.getElementById('enableOcr');
-  const ocr = ocrEl ? ocrEl.value === '1' : true;
+  const layerEl = document.getElementById('textLayerMode');
+  const textLayerMode = layerEl ? layerEl.value : 'hybrid';
+  const ocr = textLayerMode !== 'none';
 
   try {
     let response;
@@ -556,7 +559,7 @@ async function convert() {
       response = await fetch('/convert/url', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale), ocr })
+        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale), text_layer_mode: textLayerMode, ocr })
       });
     } else {
       if (!selectedFile) { alert('파일을 선택해주세요.'); btn.disabled=false; return; }
@@ -567,6 +570,7 @@ async function convert() {
       fd.append('margin', margin);
       fd.append('scale', scale);
       fd.append('ocr', ocr ? '1' : '0');
+      fd.append('text_layer_mode', textLayerMode);
       response = await fetch('/convert/file', { method: 'POST', body: fd });
     }
 
@@ -660,6 +664,9 @@ PDF_HEIGHT_TOLERANCE_PX = 150
 PDF_BACKGROUND_COLOR = (255, 255, 255)
 PDF_OCR_LANGUAGE = os.environ.get("OCR_LANG", "kor+eng")
 PDF_OCR_TIMEOUT_SECONDS = int(os.environ.get("OCR_TIMEOUT_SECONDS", "300"))
+PDF_OCR_CHUNK_HEIGHT_PX = int(os.environ.get("OCR_CHUNK_HEIGHT_PX", "3000"))
+PDF_OCR_CHUNK_OVERLAP_PX = int(os.environ.get("OCR_CHUNK_OVERLAP_PX", "80"))
+PDF_OCR_MIN_TEXT_RATIO = float(os.environ.get("OCR_MIN_TEXT_RATIO", "0.0008"))
 
 def make_job_id():
     import uuid
@@ -671,6 +678,12 @@ def parse_bool(value, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+def normalize_text_layer_mode(value=None, ocr_enabled: bool = True) -> str:
+    mode = (value or "").strip().lower()
+    if mode in ("none", "ocr", "dom", "hybrid"):
+        return mode
+    return "hybrid" if ocr_enabled else "none"
 
 def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tuple[str, str]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -797,6 +810,72 @@ def get_content_box_metrics(page) -> dict:
     }""")
     return {key: int(round(value or 0)) for key, value in metrics.items()}
 
+def get_dom_text_layer_items(page) -> list[dict]:
+    """Collect visible DOM text with CSS-pixel coordinates before screenshot cropping."""
+    items = page.evaluate("""() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        const results = [];
+        const ignoredTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT']);
+        const normalize = (text, preserve) => {
+            if (!text) return '';
+            return preserve ? text.replace(/\\u00a0/g, ' ') : text.replace(/\\s+/g, ' ').trim();
+        };
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const parent = node.parentElement;
+            if (!parent || ignoredTags.has(parent.tagName)) continue;
+            const style = window.getComputedStyle(parent);
+            if (
+                style.display === 'none' ||
+                style.visibility === 'hidden' ||
+                Number(style.opacity) === 0 ||
+                Number.parseFloat(style.fontSize || '0') <= 0
+            ) {
+                continue;
+            }
+            const preserve = !!parent.closest('pre, code');
+            const text = normalize(node.textContent, preserve);
+            if (!text.trim()) continue;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const rects = Array.from(range.getClientRects())
+                .map((rect) => ({
+                    left: rect.left + window.scrollX,
+                    top: rect.top + window.scrollY,
+                    width: rect.width,
+                    height: rect.height,
+                    right: rect.right + window.scrollX,
+                    bottom: rect.bottom + window.scrollY,
+                }))
+                .filter((rect) => rect.width > 0 && rect.height > 0);
+            range.detach();
+            if (!rects.length) continue;
+            const first = rects[0];
+            const left = Math.min(...rects.map((rect) => rect.left));
+            const top = Math.min(...rects.map((rect) => rect.top));
+            const right = Math.max(...rects.map((rect) => rect.right));
+            const bottom = Math.max(...rects.map((rect) => rect.bottom));
+            results.push({
+                text,
+                left: first.left,
+                top: first.top,
+                width: Math.max(first.width, right - left),
+                height: first.height,
+                box_left: left,
+                box_top: top,
+                box_width: right - left,
+                box_height: bottom - top,
+                font_size: Number.parseFloat(style.fontSize || '12') || 12,
+                font_weight: style.fontWeight || '',
+                line_height: style.lineHeight || '',
+                tag: parent.tagName.toLowerCase(),
+                preserve_space: preserve,
+            });
+        }
+        return results;
+    }""")
+    return items or []
+
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
 
@@ -828,8 +907,452 @@ def get_png_size(png_path: str) -> tuple[int, int]:
     height = int.from_bytes(header[20:24], "big")
     return width, height
 
-def apply_ocr_to_pdf(pdf_path: str, enabled: bool = True, language: str = PDF_OCR_LANGUAGE) -> dict:
-    """Apply OCR with OCRmyPDF when it is available locally."""
+def extract_pdf_text_length(pdf_path: str) -> int:
+    from pypdf import PdfReader
+
+    reader = PdfReader(pdf_path)
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    return len(text.strip())
+
+def preprocess_ocr_chunk(image, mode: str):
+    from PIL import ImageEnhance, ImageFilter
+
+    gray = image.convert("L")
+    if mode == "sharp":
+        return ImageEnhance.Contrast(gray).enhance(1.45).filter(ImageFilter.SHARPEN)
+    if mode == "contrast":
+        return ImageEnhance.Contrast(gray).enhance(1.85).filter(ImageFilter.SHARPEN)
+    if mode == "threshold":
+        enhanced = ImageEnhance.Contrast(gray).enhance(1.65).filter(ImageFilter.SHARPEN)
+        return enhanced.point(lambda px: 255 if px > 185 else 0, mode="1").convert("L")
+    return gray
+
+def run_tesseract_tsv(image_path: str, language: str, psm: int = 6) -> list[dict]:
+    import csv
+    import subprocess
+
+    command = [
+        "tesseract",
+        image_path,
+        "stdout",
+        "-l",
+        language,
+        "--psm",
+        str(psm),
+        "tsv",
+    ]
+    completed = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=PDF_OCR_TIMEOUT_SECONDS,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError((completed.stderr or completed.stdout or "").strip())
+
+    rows = []
+    reader = csv.DictReader(completed.stdout.splitlines(), delimiter="\t")
+    for row in reader:
+        text = (row.get("text") or "").strip()
+        if not text:
+            continue
+        try:
+            conf = float(row.get("conf") or -1)
+            left = int(float(row.get("left") or 0))
+            top = int(float(row.get("top") or 0))
+            width = int(float(row.get("width") or 0))
+            height = int(float(row.get("height") or 0))
+        except ValueError:
+            continue
+        if conf < 0 or width <= 0 or height <= 0:
+            continue
+        rows.append({
+            "text": text,
+            "conf": conf,
+            "left": left,
+            "top": top,
+            "width": width,
+            "height": height,
+        })
+    return rows
+
+def ocr_image_chunks(png_path: str, language: str = PDF_OCR_LANGUAGE) -> dict:
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    tesseract_bin = shutil.which("tesseract")
+    if not tesseract_bin:
+        return {
+            "words": [],
+            "chunks": [],
+            "failed_chunks": [],
+            "text_length": 0,
+            "status": "skipped",
+            "error": "tesseract command not found",
+        }
+
+    variants = ["sharp", "contrast", "threshold"]
+    all_words = []
+    chunks = []
+    failed_chunks = []
+
+    with Image.open(png_path) as source_image:
+        source = source_image.convert("RGB")
+        image_width, image_height = source.size
+        chunk_height = min(max(PDF_OCR_CHUNK_HEIGHT_PX, 1200), image_height)
+        overlap = min(PDF_OCR_CHUNK_OVERLAP_PX, max(0, chunk_height // 10))
+        y_positions = []
+        y = 0
+        while y < image_height:
+            y_positions.append(y)
+            if y + chunk_height >= image_height:
+                break
+            y += max(1, chunk_height - overlap)
+
+        with tempfile.TemporaryDirectory(prefix="notion_pdf_ocr_") as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            for chunk_index, chunk_top in enumerate(y_positions):
+                chunk_bottom = min(image_height, chunk_top + chunk_height)
+                chunk = source.crop((0, chunk_top, image_width, chunk_bottom))
+                best_rows = []
+                best_variant = None
+                best_error = None
+
+                for variant in variants:
+                    processed = preprocess_ocr_chunk(chunk, variant)
+                    chunk_path = temp_dir_path / f"chunk_{chunk_index:04d}_{variant}.png"
+                    processed.save(chunk_path)
+                    try:
+                        rows = run_tesseract_tsv(str(chunk_path), language=language, psm=6)
+                    except Exception as exc:
+                        best_error = str(exc)
+                        rows = []
+                    if sum(len(row["text"]) for row in rows) > sum(len(row["text"]) for row in best_rows):
+                        best_rows = rows
+                        best_variant = variant
+                    min_chars = max(8, int((chunk_bottom - chunk_top) * image_width * PDF_OCR_MIN_TEXT_RATIO / 100))
+                    if sum(len(row["text"]) for row in best_rows) >= min_chars and variant != "threshold":
+                        break
+
+                chunk_text_length = sum(len(row["text"]) for row in best_rows)
+                chunk_info = {
+                    "index": chunk_index,
+                    "top": chunk_top,
+                    "bottom": chunk_bottom,
+                    "height": chunk_bottom - chunk_top,
+                    "variant": best_variant,
+                    "word_count": len(best_rows),
+                    "text_length": chunk_text_length,
+                    "status": "ok" if chunk_text_length > 0 else "failed",
+                }
+                chunks.append(chunk_info)
+                if chunk_text_length == 0:
+                    failed_chunks.append({
+                        "index": chunk_index,
+                        "top": chunk_top,
+                        "bottom": chunk_bottom,
+                        "error": best_error or "no OCR text detected",
+                    })
+                    continue
+
+                for row in best_rows:
+                    row = dict(row)
+                    if chunk_index > 0 and row["top"] < overlap:
+                        continue
+                    row["chunk_index"] = chunk_index
+                    row["page_left"] = row["left"]
+                    row["page_top"] = chunk_top + row["top"]
+                    all_words.append(row)
+
+    return {
+        "words": all_words,
+        "chunks": chunks,
+        "failed_chunks": failed_chunks,
+        "text_length": sum(len(word["text"]) for word in all_words),
+        "status": "ok" if all_words else "failed",
+        "error": None if all_words else "no OCR text detected",
+    }
+
+def build_tounicode_cmap(texts: list[str]) -> bytes:
+    chars = sorted({char for text in texts for char in text if 0 < ord(char) <= 0xFFFF}, key=ord)
+    lines = [
+        "/CIDInit /ProcSet findresource begin",
+        "12 dict begin",
+        "begincmap",
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+        "/CMapName /NotionOCRUnicode def",
+        "/CMapType 2 def",
+        "1 begincodespacerange",
+        "<0000> <FFFF>",
+        "endcodespacerange",
+    ]
+    for start in range(0, len(chars), 100):
+        group = chars[start:start + 100]
+        lines.append(f"{len(group)} beginbfchar")
+        for char in group:
+            code = f"{ord(char):04X}"
+            lines.append(f"<{code}> <{code}>")
+        lines.append("endbfchar")
+    lines.extend(["endcmap", "CMapName currentdict /CMap defineresource pop", "end", "end"])
+    return ("\n".join(lines) + "\n").encode("ascii")
+
+def text_to_pdf_hex(text: str) -> str:
+    return "".join(f"{ord(char):04X}" for char in text if 0 < ord(char) <= 0xFFFF)
+
+def add_invisible_text_layer_to_pdf(
+    pdf_path: str,
+    words: list[dict],
+    image_width: int,
+    image_height: int,
+) -> int:
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
+
+    if not words:
+        return 0
+
+    reader = PdfReader(pdf_path)
+    writer = PdfWriter()
+    page = reader.pages[0]
+    pdf_width = float(page.mediabox.width)
+    pdf_height = float(page.mediabox.height)
+    scale_x = pdf_width / max(image_width, 1)
+    scale_y = pdf_height / max(image_height, 1)
+
+    writer.add_page(page)
+    page = writer.pages[0]
+
+    tounicode = DecodedStreamObject()
+    tounicode.set_data(build_tounicode_cmap([word["text"] for word in words]))
+    tounicode_ref = writer._add_object(tounicode)
+
+    cid_font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/CIDFontType0"),
+        NameObject("/BaseFont"): NameObject("/HYGoThic-Medium"),
+        NameObject("/CIDSystemInfo"): DictionaryObject({
+            NameObject("/Registry"): TextStringObject("Adobe"),
+            NameObject("/Ordering"): TextStringObject("Korea1"),
+            NameObject("/Supplement"): NumberObject(2),
+        }),
+    })
+    cid_font_ref = writer._add_object(cid_font)
+    font = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type0"),
+        NameObject("/BaseFont"): NameObject("/HYGoThic-Medium"),
+        NameObject("/Encoding"): NameObject("/Identity-H"),
+        NameObject("/DescendantFonts"): ArrayObject([cid_font_ref]),
+        NameObject("/ToUnicode"): tounicode_ref,
+    })
+    font_ref = writer._add_object(font)
+
+    resources = page.get("/Resources")
+    if resources is None:
+        resources = DictionaryObject()
+        page[NameObject("/Resources")] = resources
+    else:
+        resources = resources.get_object()
+    fonts = resources.get("/Font")
+    if fonts is None:
+        fonts = DictionaryObject()
+        resources[NameObject("/Font")] = fonts
+    else:
+        fonts = fonts.get_object()
+    fonts[NameObject("/Focr")] = font_ref
+
+    commands = ["q", "BT", "3 Tr"]
+    inserted = 0
+    for word in words:
+        text_hex = text_to_pdf_hex(word["text"])
+        if not text_hex:
+            continue
+        x = max(0, word["page_left"] * scale_x)
+        y = max(0, pdf_height - ((word["page_top"] + word["height"]) * scale_y))
+        font_size = max(3.0, word["height"] * scale_y * 0.9)
+        commands.append(f"/Focr {font_size:.3f} Tf")
+        commands.append(f"1 0 0 1 {x:.3f} {y:.3f} Tm <{text_hex}> Tj")
+        inserted += 1
+    commands.extend(["ET", "Q"])
+
+    stream = DecodedStreamObject()
+    stream.set_data(("\n".join(commands) + "\n").encode("ascii"))
+    stream_ref = writer._add_object(stream)
+    existing_contents = page.get("/Contents")
+    if existing_contents is None:
+        page[NameObject("/Contents")] = stream_ref
+    elif isinstance(existing_contents, ArrayObject):
+        existing_contents.append(stream_ref)
+    else:
+        page[NameObject("/Contents")] = ArrayObject([existing_contents, stream_ref])
+
+    temp_output = str(Path(pdf_path).with_suffix(".ocr-layer.pdf"))
+    with open(temp_output, "wb") as fp:
+        writer.write(fp)
+    Path(temp_output).replace(pdf_path)
+    return inserted
+
+def transform_dom_items_to_final_image(dom_items: list[dict], crop_metrics: dict, image_width: int, image_height: int) -> list[dict]:
+    scale = crop_metrics.get("image_coordinate_scale", 1) or 1
+    crop_left = crop_metrics.get("image_crop_left_px", 0) or 0
+    paste_x = crop_metrics.get("image_paste_x_px", 0) or 0
+    rebalance_shift = crop_metrics.get("image_rebalance_shift_x_px", 0) or 0
+    transformed = []
+    for item in dom_items:
+        text = (item.get("text") or "").strip()
+        if not text:
+            continue
+        page_left = (float(item.get("left") or 0) * scale) - crop_left + paste_x + rebalance_shift
+        page_top = float(item.get("top") or 0) * scale
+        width = max(1, float(item.get("width") or 1) * scale)
+        height = max(1, float(item.get("height") or item.get("font_size") or 12) * scale)
+        if page_top > image_height or page_left + width < 0 or page_left > image_width:
+            continue
+        transformed.append({
+            "text": text,
+            "page_left": max(0, page_left),
+            "page_top": max(0, min(page_top, image_height - 1)),
+            "width": min(width, image_width),
+            "height": height,
+            "font_size": item.get("font_size"),
+            "font_weight": item.get("font_weight"),
+            "line_height": item.get("line_height"),
+            "source": "dom",
+        })
+    return transformed
+
+def word_overlaps_dom(word: dict, dom_items: list[dict]) -> bool:
+    center_x = word["page_left"] + (word["width"] / 2)
+    center_y = word["page_top"] + (word["height"] / 2)
+    for item in dom_items:
+        pad_x = max(4, item["height"] * 0.6)
+        pad_y = max(3, item["height"] * 0.5)
+        if (
+            item["page_left"] - pad_x <= center_x <= item["page_left"] + item["width"] + pad_x and
+            item["page_top"] - pad_y <= center_y <= item["page_top"] + item["height"] + pad_y
+        ):
+            return True
+    return False
+
+def empty_text_layer_info(mode: str, status: str, error: str | None = None) -> dict:
+    return {
+        "text_layer_mode": mode,
+        "text_layer_status": status,
+        "text_layer_error": error,
+        "dom_text_layer_applied": False,
+        "dom_text_layer_items": 0,
+        "dom_text_layer_chars": 0,
+        "dom_text_layer_extracted_chars": 0,
+        "ocr_requested": False,
+        "ocr_applied": False,
+        "ocr_status": "disabled",
+        "ocr_language": PDF_OCR_LANGUAGE,
+        "ocr_engine": None,
+        "ocr_error": None,
+        "ocr_text_length": 0,
+        "ocr_extracted_text_length": 0,
+        "ocr_inserted_words": 0,
+        "ocr_chunk_count": 0,
+        "ocr_chunks": [],
+        "ocr_failed_chunks": [],
+    }
+
+def apply_text_layers_to_pdf(
+    pdf_path: str,
+    png_path: str,
+    image_width: int,
+    image_height: int,
+    mode: str,
+    dom_items: list[dict],
+    crop_metrics: dict,
+    language: str = PDF_OCR_LANGUAGE,
+) -> dict:
+    mode = normalize_text_layer_mode(mode, mode != "none")
+    if mode == "none":
+        return empty_text_layer_info(mode, "disabled")
+
+    info = empty_text_layer_info(mode, "applied")
+    dom_layer_items = transform_dom_items_to_final_image(dom_items, crop_metrics, image_width, image_height)
+    inserted_dom = 0
+    ocr_words = []
+    ocr_result = None
+
+    if mode in ("dom", "hybrid") and dom_layer_items:
+        inserted_dom = len(dom_layer_items)
+        info.update({
+            "dom_text_layer_applied": True,
+            "dom_text_layer_items": inserted_dom,
+            "dom_text_layer_chars": sum(len(item["text"]) for item in dom_layer_items),
+        })
+
+    if mode in ("ocr", "hybrid"):
+        if not shutil.which("tesseract"):
+            info.update({
+                "ocr_requested": True,
+                "ocr_status": "skipped",
+                "ocr_error": "tesseract command not found",
+                "text_layer_status": "partial" if inserted_dom else "skipped",
+            })
+        else:
+            try:
+                ocr_result = ocr_image_chunks(png_path, language=language)
+                ocr_words = ocr_result["words"]
+                if mode == "hybrid" and dom_layer_items:
+                    ocr_words = [word for word in ocr_words if not word_overlaps_dom(word, dom_layer_items)]
+                info.update({
+                    "ocr_requested": True,
+                    "ocr_applied": bool(ocr_words),
+                    "ocr_status": "applied" if ocr_words else "insufficient_text",
+                    "ocr_language": language,
+                    "ocr_engine": "tesseract-tsv+pypdf-text-layer",
+                    "ocr_error": None if ocr_words else "no non-DOM OCR words inserted",
+                    "ocr_text_length": ocr_result["text_length"],
+                    "ocr_inserted_words": len(ocr_words),
+                    "ocr_chunk_count": len(ocr_result["chunks"]),
+                    "ocr_chunks": ocr_result["chunks"],
+                    "ocr_failed_chunks": ocr_result["failed_chunks"],
+                })
+            except Exception as exc:
+                info.update({
+                    "ocr_requested": True,
+                    "ocr_applied": False,
+                    "ocr_status": "failed",
+                    "ocr_language": language,
+                    "ocr_engine": "tesseract-tsv+pypdf-text-layer",
+                    "ocr_error": str(exc),
+                    "text_layer_status": "partial" if inserted_dom else "failed",
+                })
+
+    combined_items = []
+    if mode in ("dom", "hybrid"):
+        combined_items.extend(dom_layer_items)
+    if mode in ("ocr", "hybrid"):
+        combined_items.extend(ocr_words)
+    inserted_total = add_invisible_text_layer_to_pdf(pdf_path, combined_items, image_width, image_height)
+    if inserted_total == 0 and mode != "none":
+        info["text_layer_status"] = "failed"
+        info["text_layer_error"] = "no text layer items inserted"
+
+    extracted_text_length = extract_pdf_text_length(pdf_path)
+    info["dom_text_layer_extracted_chars"] = extracted_text_length if inserted_dom else 0
+    info["ocr_extracted_text_length"] = extracted_text_length if info["ocr_requested"] else 0
+    if extracted_text_length == 0:
+        info["text_layer_status"] = "failed"
+        info["text_layer_error"] = "no extractable text after text layer insertion"
+    elif info["text_layer_status"] == "applied" and mode == "hybrid" and not inserted_dom and not info["ocr_applied"]:
+        info["text_layer_status"] = "failed"
+    return info
+
+def apply_ocr_to_pdf(
+    pdf_path: str,
+    png_path: str,
+    image_width: int,
+    image_height: int,
+    enabled: bool = True,
+    language: str = PDF_OCR_LANGUAGE,
+) -> dict:
+    """Apply chunked OCR to the final image and add an invisible PDF text layer."""
     if not enabled:
         return {
             "ocr_requested": False,
@@ -838,72 +1361,67 @@ def apply_ocr_to_pdf(pdf_path: str, enabled: bool = True, language: str = PDF_OC
             "ocr_language": language,
             "ocr_engine": None,
             "ocr_error": None,
+            "ocr_text_length": 0,
+            "ocr_extracted_text_length": 0,
+            "ocr_chunk_count": 0,
+            "ocr_chunks": [],
+            "ocr_failed_chunks": [],
         }
 
-    ocrmypdf_bin = shutil.which("ocrmypdf")
-    if not ocrmypdf_bin:
+    if not shutil.which("tesseract"):
         return {
             "ocr_requested": True,
             "ocr_applied": False,
             "ocr_status": "skipped",
             "ocr_language": language,
             "ocr_engine": None,
-            "ocr_error": "ocrmypdf command not found",
+            "ocr_error": "tesseract command not found",
+            "ocr_text_length": 0,
+            "ocr_extracted_text_length": 0,
+            "ocr_chunk_count": 0,
+            "ocr_chunks": [],
+            "ocr_failed_chunks": [],
         }
 
-    import subprocess
-
-    input_path = Path(pdf_path)
-    output_path = input_path.with_name(f"{input_path.stem}_ocr{input_path.suffix}")
-    command = [
-        ocrmypdf_bin,
-        "--skip-text",
-        "--optimize",
-        "0",
-        "--output-type",
-        "pdf",
-        "--language",
-        language,
-        str(input_path),
-        str(output_path),
-    ]
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=PDF_OCR_TIMEOUT_SECONDS,
+        ocr_result = ocr_image_chunks(png_path, language=language)
+        inserted_words = add_invisible_text_layer_to_pdf(
+            pdf_path,
+            ocr_result["words"],
+            image_width=image_width,
+            image_height=image_height,
         )
-        if completed.returncode != 0:
-            output_path.unlink(missing_ok=True)
-            error = (completed.stderr or completed.stdout or "").strip()
-            return {
-                "ocr_requested": True,
-                "ocr_applied": False,
-                "ocr_status": "failed",
-                "ocr_language": language,
-                "ocr_engine": "ocrmypdf",
-                "ocr_error": error[-1000:] if error else f"ocrmypdf exited with {completed.returncode}",
-            }
-        output_path.replace(input_path)
+        extracted_text_length = extract_pdf_text_length(pdf_path)
+        expected_min = max(20, int(ocr_result["text_length"] * 0.35))
+        applied = inserted_words > 0 and extracted_text_length >= expected_min
         return {
             "ocr_requested": True,
-            "ocr_applied": True,
-            "ocr_status": "applied",
+            "ocr_applied": applied,
+            "ocr_status": "applied" if applied else "insufficient_text",
             "ocr_language": language,
-            "ocr_engine": "ocrmypdf",
-            "ocr_error": None,
+            "ocr_engine": "tesseract-tsv+pypdf-text-layer",
+            "ocr_error": None if applied else "OCR text layer extraction was below threshold",
+            "ocr_text_length": ocr_result["text_length"],
+            "ocr_extracted_text_length": extracted_text_length,
+            "ocr_inserted_words": inserted_words,
+            "ocr_chunk_count": len(ocr_result["chunks"]),
+            "ocr_chunks": ocr_result["chunks"],
+            "ocr_failed_chunks": ocr_result["failed_chunks"],
         }
-    except subprocess.TimeoutExpired:
-        output_path.unlink(missing_ok=True)
+    except Exception as exc:
         return {
             "ocr_requested": True,
             "ocr_applied": False,
             "ocr_status": "failed",
             "ocr_language": language,
-            "ocr_engine": "ocrmypdf",
-            "ocr_error": f"ocrmypdf timed out after {PDF_OCR_TIMEOUT_SECONDS}s",
+            "ocr_engine": "tesseract-tsv+pypdf-text-layer",
+            "ocr_error": str(exc),
+            "ocr_text_length": 0,
+            "ocr_extracted_text_length": extract_pdf_text_length(pdf_path) if Path(pdf_path).exists() else 0,
+            "ocr_inserted_words": 0,
+            "ocr_chunk_count": 0,
+            "ocr_chunks": [],
+            "ocr_failed_chunks": [],
         }
 
 def crop_png_to_content_area(
@@ -995,10 +1513,12 @@ def crop_png_to_content_area(
     final_bounds = measure_content_bounds(final)
     final_left_margin = max(0, final_bounds["left"])
     final_right_margin = max(0, output_width - final_bounds["right"] - 1)
+    rebalance_shift_x = 0
     if final_bounds["right"] >= final_bounds["left"] and abs(final_left_margin - final_right_margin) >= 5:
         actual_content_width = final_bounds["right"] - final_bounds["left"] + 1
         if actual_content_width < output_width:
             centered_x = (output_width - actual_content_width) // 2
+            rebalance_shift_x = centered_x - final_bounds["left"]
             content_only = final.crop((final_bounds["left"], 0, final_bounds["right"] + 1, cropped_height))
             rebalanced = Image.new("RGB", (output_width, cropped_height), bg_color)
             rebalanced.paste(content_only, (centered_x, 0))
@@ -1028,6 +1548,11 @@ def crop_png_to_content_area(
         "content_box_bottom": int(content_box["bottom"] * coordinate_scale),
         "pixel_content_bottom": pixel_bottom + 1,
         "background_rgb": f"{bg_color[0]},{bg_color[1]},{bg_color[2]}",
+        "image_crop_left_px": crop_left,
+        "image_crop_right_px": crop_right,
+        "image_paste_x_px": paste_x,
+        "image_rebalance_shift_x_px": rebalance_shift_x,
+        "image_coordinate_scale": coordinate_scale,
     }
 
 def save_screenshot_as_single_page_pdf(
@@ -1036,6 +1561,7 @@ def save_screenshot_as_single_page_pdf(
     width: int = PDF_WIDTH_PX,
     scale: int = 2,
     ocr: bool = True,
+    text_layer_mode: str | None = None,
 ) -> dict:
     import img2pdf
 
@@ -1053,6 +1579,7 @@ def save_screenshot_as_single_page_pdf(
     page.wait_for_timeout(250)
     content_box = get_content_box_metrics(page)
     capture_height = max(capture_height, content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX)
+    dom_text_items = get_dom_text_layer_items(page)
     page.screenshot(
         path=png_path,
         type="png",
@@ -1087,8 +1614,17 @@ def save_screenshot_as_single_page_pdf(
     with open(output_path, "wb") as fp:
         fp.write(img2pdf.convert(png_path, layout_fun=layout_fun))
 
+    mode = normalize_text_layer_mode(text_layer_mode, ocr)
+    text_layer_info = apply_text_layers_to_pdf(
+        output_path,
+        png_path,
+        image_width=image_width,
+        image_height=image_height,
+        mode=mode,
+        dom_items=dom_text_items,
+        crop_metrics=crop_metrics,
+    )
     Path(png_path).unlink(missing_ok=True)
-    ocr_info = apply_ocr_to_pdf(output_path, enabled=ocr)
     page_count = assert_single_page_pdf(output_path)
     pdf_info = get_pdf_page_info(output_path)
     pdf_ratio = pdf_info["pdf_page_height"] / max(pdf_info["pdf_page_width"], 1)
@@ -1109,7 +1645,8 @@ def save_screenshot_as_single_page_pdf(
         "height_difference": height_difference,
         "allowed_tolerance": allowed_tolerance,
         "scale": scale,
-        **ocr_info,
+        **text_layer_info,
+        "dom_text_nodes": len(dom_text_items),
         "original_image_width": original_image_width,
         "original_image_height": original_image_height,
         "image_width": image_width,
@@ -1136,6 +1673,7 @@ def html_to_seamless_pdf(
     margin: int = 40,
     scale: int = 2,
     ocr: bool = True,
+    text_layer_mode: str | None = None,
 ):
     """Convert HTML to a single-page (no page breaks) PDF using Playwright."""
     from playwright.sync_api import sync_playwright
@@ -1161,7 +1699,7 @@ def html_to_seamless_pdf(
             device_scale_factor=max(1, min(int(scale), 3)),
         )
         page.set_content(html_content, wait_until="networkidle")
-        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr)
+        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr, text_layer_mode)
         browser.close()
         return result
 
@@ -1172,6 +1710,7 @@ def url_to_seamless_pdf(
     margin: int = 40,
     scale: int = 2,
     ocr: bool = True,
+    text_layer_mode: str | None = None,
 ):
     """Fetch Notion URL and convert to seamless PDF."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
@@ -1217,7 +1756,7 @@ def url_to_seamless_pdf(
             """)
 
             stage = "전체 페이지 PNG 캡처 및 PDF 생성"
-            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr)
+            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr, text_layer_mode)
         except Exception as e:
             raise RuntimeError(
                 f"Notion URL 변환 실패 ({stage}). URL: {url}. 접근 상태: {status}. "
@@ -1240,6 +1779,7 @@ def convert_url():
     margin = int(data.get('margin', 40))
     scale = int(data.get('scale', 2))
     ocr = parse_bool(data.get('ocr'), True)
+    text_layer_mode = normalize_text_layer_mode(data.get('text_layer_mode'), ocr)
 
     if not url.startswith('http'):
         return jsonify({'error': '올바른 URL을 입력해주세요.'}), 400
@@ -1250,7 +1790,7 @@ def convert_url():
     def run():
         try:
             output_filename, out = make_timestamped_pdf_path(job_id)
-            result = url_to_seamless_pdf(url, out, width, margin, scale, ocr)
+            result = url_to_seamless_pdf(url, out, width, margin, scale, ocr, text_layer_mode)
             jobs[job_id] = {'status': 'done', 'filename': output_filename, 'path': out, 'error': None, **result}
         except Exception as e:
             jobs[job_id] = {'status': 'error', 'filename': None, 'path': None, 'error': str(e)}
@@ -1265,6 +1805,7 @@ def convert_file():
     margin = int(request.form.get('margin', 40))
     scale = int(request.form.get('scale', 2))
     ocr = parse_bool(request.form.get('ocr'), True)
+    text_layer_mode = normalize_text_layer_mode(request.form.get('text_layer_mode'), ocr)
 
     if not f:
         return jsonify({'error': '파일이 없습니다.'}), 400
@@ -1284,7 +1825,7 @@ def convert_file():
             if ext in ('.html', '.htm'):
                 with open(in_path, 'r', encoding='utf-8', errors='ignore') as fp:
                     html = fp.read()
-                result = html_to_seamless_pdf(html, out, width, margin, scale, ocr)
+                result = html_to_seamless_pdf(html, out, width, margin, scale, ocr, text_layer_mode)
             elif ext == '.pdf':
                 # PDF → re-render as single page via html wrapper trick
                 # Just copy with a note (full re-render from PDF is complex)

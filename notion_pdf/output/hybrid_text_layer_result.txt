@@ -1,0 +1,96 @@
+OCR comparison sample
+운영 점검 문장
+MasterVD와 HOST01은 프로비전가능 상태입니다.
+MasterVD2 경로는 C:\ClusterStorage\Volume1\MasterVD2 입니다.
+Project Overview Title
+This paragraph checks body text extraction from a Notion style page.
+List item one for OCR validation
+List item two with mixed Korean and English OCR text
+Exact targets
+MasterVD
+MasterVD2
+HOST01
+C:\ClusterStorage
+프로비전가능
+MasterVD와 HOST01은 프로비전가능 상태입니다.
+Project Overview Title
+This paragraph checks body text extraction from a Notion style page.
+List item one for OCR validation
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+python -m unittest discover -s tests
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
+from pathlib import Path
+print(Path(r"C:\dev\projects\Tilon\notion_pdf"))
+Repeated OCR targets
+Windows paths
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+C:\ClusterStorage\Volume1\MasterVD
+
+PowerShell commands
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
+
+Code block
+from pathlib import Path
+print(Path(r"C:\dev\projects\Tilon\notion_pdf"))
+
+Windows paths
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+C:\ClusterStorage\Volume1\MasterVD
+
+PowerShell commands
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
+
+Code block
+from pathlib import Path
+print(Path(r"C:\dev\projects\Tilon\notion_pdf"))
+e
+e
+MastervD2
+HOST@1
+C:\ClusterStorage
+프 로 비 전 가능
+MasterVD2} HOST@12 프 로 비 전 가 능 상 태 입니다,
+Project Overview Title
+This paragraph checks body text extraction from a Notion style
+page.
+List item one for OCR validation
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+python -m unittest discover -5 tests
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
+from pathlib import Path
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+C:\ClusterStorage\Volume1\MasterVD
+PowerShell commands
+$env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -5 tests
+Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
+Code block
+from pathlib import Path
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
+Windows paths
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dylee\AppData\Local\Temp\notion_pdf
+C:\ClusterStorage\Volume1\MasterVD
+PowerShell commands
+$env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -5 tests
+Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
+Code block
+from pathlib import Path
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
