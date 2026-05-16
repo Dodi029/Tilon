@@ -1,28 +1,15 @@
 OCR comparison sample
 운영 점검 문장
-ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
-처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
-MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
-C:\ClusterStorage\Volume1\MasterVD2
-종료 시 바로 프로비전 가능 상태를 확인합니다.
 MasterVD와 HOST01은 프로비전가능 상태입니다.
 MasterVD2 경로는 C:\ClusterStorage\Volume1\MasterVD2 입니다.
-Hyper-V 호스트 HOST01에서 MasterVD와 MasterVD2를 점검합니다.
 Project Overview Title
 This paragraph checks body text extraction from a Notion style page.
 List item one for OCR validation
 List item two with mixed Korean and English OCR text
 Exact targets
-ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
-처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
-MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
-C:\ClusterStorage\Volume1\MasterVD2
-종료 시 바로 프로비전 가능
 MasterVD
 MasterVD2
 HOST01
-Hyper-V
-ClusterStorage
 C:\ClusterStorage
 프로비전가능
 MasterVD와 HOST01은 프로비전가능 상태입니다.
@@ -66,36 +53,44 @@ Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
 Code block
 from pathlib import Path
 print(Path(r"C:\dev\projects\Tilon\notion_pdf"))
+e
+e
+MastervD2
+HOST@1
+C:\ClusterStorage
+프 로 비 전 가능
+MasterVD2} HOST@12 프 로 비 전 가 능 상 태 입니다,
 Project Overview Title
 This paragraph checks body text extraction from a Notion style
 page.
 List item one for OCR validation
 C:\dev\projects\Tilon\notion_pdf
 C:\Users\dylee\AppData\Local\Temp\notion_pdf
-python app.py
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
 python -m unittest discover -5 tests
--Path C:\dev\projects\Tilon
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
 from pathlib import Path
-)
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
+C:\dev\projects\Tilon\notion_pdf
 C:\Users\dylee\AppData\Local\Temp\notion_pdf
 C:\ClusterStorage\Volume1\MasterVD
 PowerShell commands
-python app.py
+$env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
 Get-VM -Name MasterVD | Select-Object VMName, State
 python -m unittest discover -5 tests
--Path C:\dev\projects\Tilon
+Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
 Code block
 from pathlib import Path
-)
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
 Windows paths
 C:\dev\projects\Tilon\notion_pdf
 C:\Users\dylee\AppData\Local\Temp\notion_pdf
 C:\ClusterStorage\Volume1\MasterVD
 PowerShell commands
-python app.py
-—Name | Select—Nhiect State
+$env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
 python -m unittest discover -5 tests
--Path C:\dev\projects\Tilon
+Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
 Code block
 from pathlib import Path
-)
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )

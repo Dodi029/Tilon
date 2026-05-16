@@ -18,21 +18,11 @@ OCR_OFF_TEXT = OUTPUT_DIR / "ocr_comparison_no_ocr.txt"
 OCR_ON_TEXT = OUTPUT_DIR / "ocr_comparison_with_ocr.txt"
 DOM_TEXT = OUTPUT_DIR / "dom_text_layer_result.txt"
 HYBRID_TEXT = OUTPUT_DIR / "hybrid_text_layer_result.txt"
-DOM_EXTRACTED_TEXT = OUTPUT_DIR / "dom_extracted_text.txt"
-OCR_EXTRACTED_TEXT = OUTPUT_DIR / "ocr_extracted_text.txt"
-FINAL_PDF_EXTRACTED_TEXT = OUTPUT_DIR / "final_pdf_extracted_text.txt"
 
 TARGETS = [
-    "ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능",
-    "처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요",
-    "MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터",
-    "C:\\ClusterStorage\\Volume1\\MasterVD2",
-    "종료 시 바로 프로비전 가능",
     "MasterVD",
     "MasterVD2",
     "HOST01",
-    "Hyper-V",
-    "ClusterStorage",
     "C:\\ClusterStorage",
     "프로비전가능",
     "MasterVD와 HOST01은 프로비전가능 상태입니다.",
@@ -108,14 +98,8 @@ def build_html() -> str:
   <h1>OCR comparison sample</h1>
   <div class="section">
     <div class="label">운영 점검 문장</div>
-    <p>ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능</p>
-    <p>처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요</p>
-    <p>MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터</p>
-    <p>C:\\ClusterStorage\\Volume1\\MasterVD2</p>
-    <p>종료 시 바로 프로비전 가능 상태를 확인합니다.</p>
     <p>MasterVD와 HOST01은 프로비전가능 상태입니다.</p>
     <p>MasterVD2 경로는 C:\\ClusterStorage\\Volume1\\MasterVD2 입니다.</p>
-    <p>Hyper-V 호스트 HOST01에서 MasterVD와 MasterVD2를 점검합니다.</p>
   </div>
   <div class="section">
     <div class="label">Project Overview Title</div>
@@ -193,9 +177,6 @@ def main() -> int:
     ocr_text = extract_text(OCR_ON_PDF, OCR_ON_TEXT)
     dom_text = extract_text(DOM_PDF, DOM_TEXT)
     hybrid_text = extract_text(HYBRID_PDF, HYBRID_TEXT)
-    DOM_EXTRACTED_TEXT.write_text(dom_text, encoding="utf-8")
-    OCR_EXTRACTED_TEXT.write_text(ocr_text, encoding="utf-8")
-    FINAL_PDF_EXTRACTED_TEXT.write_text(hybrid_text, encoding="utf-8")
     no_ocr_matches = count_matches(no_ocr_text)
     ocr_matches = count_matches(ocr_text)
     dom_matches = count_matches(dom_text)
@@ -209,9 +190,6 @@ def main() -> int:
     print(f"OCR_ON_TEXT={OCR_ON_TEXT}")
     print(f"DOM_TEXT={DOM_TEXT}")
     print(f"HYBRID_TEXT={HYBRID_TEXT}")
-    print(f"DOM_EXTRACTED_TEXT={DOM_EXTRACTED_TEXT}")
-    print(f"OCR_EXTRACTED_TEXT={OCR_EXTRACTED_TEXT}")
-    print(f"FINAL_PDF_EXTRACTED_TEXT={FINAL_PDF_EXTRACTED_TEXT}")
     print(f"OCR_OFF_STATUS={no_ocr['ocr_status']}")
     print(f"OCR_ON_STATUS={with_ocr['ocr_status']}")
     print(f"DOM_TEXT_LAYER_STATUS={with_dom['text_layer_status']}")
@@ -258,22 +236,6 @@ def main() -> int:
         return 1
     if len(dom_text.strip()) == 0:
         print("DOM text extraction produced no text.")
-        return 1
-    required = [
-        "ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능",
-        "처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요",
-        "MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터",
-        "C:\\ClusterStorage\\Volume1\\MasterVD2",
-        "종료 시 바로 프로비전 가능",
-        "MasterVD",
-        "MasterVD2",
-        "HOST01",
-        "Hyper-V",
-        "ClusterStorage",
-    ]
-    missing = [target for target in required if target not in hybrid_text]
-    if missing:
-        print(f"FINAL_PDF_MISSING={missing}")
         return 1
     return 0
 

@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify, send_file, render_template_string
 import os, shutil, tempfile, time, threading
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -94,8 +93,6 @@ HTML_PAGE = '''<!DOCTYPE html>
     color: var(--muted);
     font-size: 0.95rem;
     line-height: 1.6;
-    max-width: 520px;
-    margin: 0 auto;
   }
 
   .card {
@@ -210,30 +207,6 @@ HTML_PAGE = '''<!DOCTYPE html>
   }
 
   .option-group label.label { margin-bottom: 0.4rem; }
-
-  .option-help {
-    color: var(--muted);
-    font-size: 0.68rem;
-    line-height: 1.4;
-    margin-top: 0.35rem;
-    min-height: 1.9em;
-  }
-
-  .text-layer-warning {
-    display: none;
-    margin-top: 0.9rem;
-    padding: 0.8rem 0.9rem;
-    border: 1px solid rgba(245, 158, 11, 0.35);
-    background: rgba(245, 158, 11, 0.09);
-    color: #92400e;
-    border-radius: 8px;
-    font-size: 0.78rem;
-    line-height: 1.5;
-  }
-
-  .text-layer-warning.show {
-    display: block;
-  }
 
   select {
     width: 100%;
@@ -414,9 +387,9 @@ HTML_PAGE = '''<!DOCTYPE html>
 
 <div class="container">
   <div class="header">
-    <div class="logo">Notion PDF Workspace</div>
+    <div class="logo">✦ Notion Tools</div>
     <h1>페이지 분할 없는<br>PDF 변환기</h1>
-    <p class="subtitle">Notion 문서를 긴 1페이지 PDF로 렌더링하고, 원본 DOM 텍스트와 OCR 보조 레이어로 복사 가능한 PDF를 생성합니다.</p>
+    <p class="subtitle">Notion 페이지를 한 장으로 이어지는 PDF로<br>깔끔하게 변환해 드려요</p>
   </div>
 
   <div class="card">
@@ -460,7 +433,6 @@ HTML_PAGE = '''<!DOCTYPE html>
           <option value="816">Letter (816px)</option>
           <option value="1200">넓게 (1200px)</option>
         </select>
-        <div class="option-help">PDF 기준 폭입니다.</div>
       </div>
       <div class="option-group">
         <label class="label">여백</label>
@@ -470,7 +442,6 @@ HTML_PAGE = '''<!DOCTYPE html>
           <option value="0">없음 (0px)</option>
           <option value="60">넓게 (60px)</option>
         </select>
-        <div class="option-help">본문 안쪽 여백입니다.</div>
       </div>
       <div class="option-group">
         <label class="label">화질</label>
@@ -479,22 +450,16 @@ HTML_PAGE = '''<!DOCTYPE html>
           <option value="1">보통 (1x)</option>
           <option value="3">최고화질 (3x)</option>
         </select>
-        <div class="option-help">높을수록 선명하고 느립니다.</div>
       </div>
       <div class="option-group">
         <label class="label">텍스트 레이어</label>
         <select id="textLayerMode">
           <option value="hybrid">DOM + OCR</option>
-          <option value="dom">DOM (실험)</option>
-          <option value="ocr">OCR (실험)</option>
+          <option value="dom">DOM</option>
+          <option value="ocr">OCR</option>
           <option value="none">없음</option>
         </select>
-        <div class="option-help">DOM 원문을 우선 사용하고, 이미지 내부 텍스트만 OCR로 보조합니다.</div>
       </div>
-    </div>
-
-    <div class="text-layer-warning" id="textLayerWarning">
-      텍스트 레이어 복사 결과가 원문과 다르면 OCR/DOM 중복 영역을 먼저 확인하세요. 보기용 PDF만 필요하면 없음 옵션을 사용하세요.
     </div>
 
     <button class="btn" id="convertBtn" onclick="convert()">
@@ -569,16 +534,6 @@ function setProgress(pct, text) {
   document.getElementById('progressBar').style.width = pct + '%';
   document.getElementById('progressText').textContent = text;
 }
-
-function updateTextLayerWarning() {
-  const layerEl = document.getElementById('textLayerMode');
-  const warningEl = document.getElementById('textLayerWarning');
-  if (!layerEl || !warningEl) return;
-  warningEl.classList.toggle('show', layerEl.value !== 'none');
-}
-
-document.getElementById('textLayerMode').addEventListener('change', updateTextLayerWarning);
-updateTextLayerWarning();
 
 async function convert() {
   hideResult();
@@ -678,9 +633,9 @@ async function pollJob(id) {
 function showSuccess(filename, id) {
   const r = document.getElementById('result');
   r.classList.add('show');
-  document.getElementById('resultIcon').textContent = '✓';
-  document.getElementById('resultTitle').textContent = 'PDF 변환이 완료되었습니다';
-  document.getElementById('resultSub').textContent = `${filename} · 다운로드 후 텍스트 선택/복사를 확인하세요`;
+  document.getElementById('resultIcon').textContent = '🎉';
+  document.getElementById('resultTitle').textContent = '변환 완료!';
+  document.getElementById('resultSub').textContent = filename;
   const dlBtn = document.getElementById('downloadBtn');
   dlBtn.href = `/download/${id}`;
   dlBtn.style.display = 'inline-flex';
@@ -689,8 +644,8 @@ function showSuccess(filename, id) {
 function showError(msg) {
   const r = document.getElementById('result');
   r.classList.add('show','error');
-  document.getElementById('resultIcon').textContent = '!';
-  document.getElementById('resultTitle').textContent = 'PDF 변환에 실패했습니다';
+  document.getElementById('resultIcon').textContent = '⚠️';
+  document.getElementById('resultTitle').textContent = '변환 실패';
   document.getElementById('resultSub').textContent = msg;
   document.getElementById('downloadBtn').style.display = 'none';
   document.getElementById('progress').classList.remove('show');
@@ -865,7 +820,6 @@ def get_dom_text_layer_items(page) -> list[dict]:
             if (!text) return '';
             return preserve ? text.replace(/\\u00a0/g, ' ') : text.replace(/\\s+/g, ' ').trim();
         };
-        let order = 0;
         while (walker.nextNode()) {
             const node = walker.currentNode;
             const parent = node.parentElement;
@@ -916,90 +870,11 @@ def get_dom_text_layer_items(page) -> list[dict]:
                 line_height: style.lineHeight || '',
                 tag: parent.tagName.toLowerCase(),
                 preserve_space: preserve,
-                source_order: order++,
-                source: 'text-node',
             });
         }
         return results;
     }""")
     return items or []
-
-def hide_notion_public_banner(page) -> dict:
-    """Hide Notion public sign-up/login banners before measuring and screenshotting."""
-    result = page.evaluate("""() => {
-        const phrases = [
-            "You're almost there",
-            "sign up to start building in Notion today",
-            "Sign up or login"
-        ];
-        const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
-        const matchesBannerText = (text) => {
-            const normalized = normalize(text);
-            return phrases.some((phrase) => normalized.includes(phrase));
-        };
-        const isChromeElement = (el) => {
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            const role = (el.getAttribute('role') || '').toLowerCase();
-            const tag = el.tagName.toLowerCase();
-            return (
-                role === 'banner' ||
-                tag === 'header' ||
-                tag === 'nav' ||
-                style.position === 'fixed' ||
-                style.position === 'sticky'
-            );
-        };
-        const isDocumentContent = (el) => {
-            return !!el.closest('main, article, .notion-page-content, .notion-page-content-inner');
-        };
-        const candidateSelectors = [
-            '[role="banner"]',
-            'header',
-            'nav',
-            '[style*="position: fixed"]',
-            '[style*="position:fixed"]',
-            '[style*="position: sticky"]',
-            '[style*="position:sticky"]'
-        ];
-        const candidates = Array.from(document.querySelectorAll(candidateSelectors.join(',')));
-        const removed = [];
-        for (const el of candidates) {
-            if (!el || el.dataset.notionPdfBannerHidden === '1') continue;
-            const text = normalize(el.innerText || el.textContent || '');
-            if (!text || !matchesBannerText(text)) continue;
-            const rect = el.getBoundingClientRect();
-            const style = window.getComputedStyle(el);
-            const containsDocument = !!el.querySelector('main, article, .notion-page-content, .notion-page-content-inner');
-            if (containsDocument || isDocumentContent(el)) continue;
-            if (!isChromeElement(el)) continue;
-            if (rect.top > 320 && !['fixed', 'sticky'].includes(style.position)) continue;
-            if (rect.height > Math.max(220, window.innerHeight * 0.35)) continue;
-            el.dataset.notionPdfBannerHidden = '1';
-            el.style.setProperty('display', 'none', 'important');
-            el.style.setProperty('visibility', 'hidden', 'important');
-            removed.push({
-                tag: el.tagName.toLowerCase(),
-                role: el.getAttribute('role') || '',
-                text: text.slice(0, 240),
-                top: rect.top + window.scrollY,
-                left: rect.left + window.scrollX,
-                width: rect.width,
-                height: rect.height,
-                position: style.position,
-            });
-        }
-        const remaining = normalize(document.body ? document.body.innerText : '');
-        return {
-            removed_count: removed.length,
-            removed,
-            remaining_banner_text: phrases.filter((phrase) => remaining.includes(phrase)),
-        };
-    }""")
-    result = result or {"removed_count": 0, "removed": [], "remaining_banner_text": []}
-    debug_path = DEBUG_OUTPUT_FOLDER / "notion_banner_cleanup.json"
-    debug_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {**result, "debug_path": str(debug_path)}
 
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
@@ -1230,7 +1105,6 @@ def add_invisible_text_layer_to_pdf(
     words: list[dict],
     image_width: int,
     image_height: int,
-    preserve_input_order: bool = False,
 ) -> int:
     from pypdf import PdfReader, PdfWriter
     from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, NumberObject, TextStringObject
@@ -1290,8 +1164,7 @@ def add_invisible_text_layer_to_pdf(
 
     commands = ["q", "BT", "3 Tr"]
     inserted = 0
-    ordered_words = words if preserve_input_order else sort_text_layer_items(words)
-    for word in ordered_words:
+    for word in words:
         text_hex = text_to_pdf_hex(word["text"])
         if not text_hex:
             continue
@@ -1340,53 +1213,14 @@ def transform_dom_items_to_final_image(dom_items: list[dict], crop_metrics: dict
             "text": text,
             "page_left": max(0, page_left),
             "page_top": max(0, min(page_top, image_height - 1)),
-            "page_y": max(0, min(page_top, image_height - 1)),
             "width": min(width, image_width),
             "height": height,
             "font_size": item.get("font_size"),
             "font_weight": item.get("font_weight"),
             "line_height": item.get("line_height"),
-            "source_order": item.get("source_order", len(transformed)),
             "source": "dom",
         })
     return transformed
-
-def sort_text_layer_items(items: list[dict]) -> list[dict]:
-    return sorted(
-        items,
-        key=lambda item: (
-            round(float(item.get("page_top", 0)) / 6) * 6,
-            float(item.get("page_left", 0)),
-            int(item.get("source_order", 0) or 0),
-        ),
-    )
-
-def write_dom_text_layer_debug(pdf_path: str, dom_items: list[dict], image_width: int, image_height: int) -> str:
-    pdf_info = get_pdf_page_info(pdf_path)
-    pdf_width = pdf_info["pdf_page_width"]
-    pdf_height = pdf_info["pdf_page_height"]
-    scale_x = pdf_width / max(image_width, 1)
-    scale_y = pdf_height / max(image_height, 1)
-    debug_items = []
-    for item in sort_text_layer_items(dom_items):
-        page_top = float(item.get("page_top", 0))
-        height = float(item.get("height", 0))
-        pdf_y = max(0, pdf_height - ((page_top + height) * scale_y))
-        debug_items.append({
-            "text": item.get("text", ""),
-            "x": item.get("page_left", 0),
-            "y": item.get("page_top", 0),
-            "width": item.get("width", 0),
-            "height": item.get("height", 0),
-            "page_y": item.get("page_y", item.get("page_top", 0)),
-            "pdf_x": float(item.get("page_left", 0)) * scale_x,
-            "pdf_y": pdf_y,
-            "source_order": item.get("source_order", 0),
-            "source": item.get("source", ""),
-        })
-    debug_path = DEBUG_OUTPUT_FOLDER / "dom_text_layer_debug.json"
-    debug_path.write_text(json.dumps(debug_items, ensure_ascii=False, indent=2), encoding="utf-8")
-    return str(debug_path)
 
 def word_overlaps_dom(word: dict, dom_items: list[dict]) -> bool:
     center_x = word["page_left"] + (word["width"] / 2)
@@ -1398,14 +1232,6 @@ def word_overlaps_dom(word: dict, dom_items: list[dict]) -> bool:
             item["page_left"] - pad_x <= center_x <= item["page_left"] + item["width"] + pad_x and
             item["page_top"] - pad_y <= center_y <= item["page_top"] + item["height"] + pad_y
         ):
-            return True
-    return False
-
-def word_in_dom_text_band(word: dict, dom_items: list[dict]) -> bool:
-    center_y = word["page_top"] + (word["height"] / 2)
-    for item in dom_items:
-        pad_y = max(4, item["height"] * 0.8)
-        if item["page_top"] - pad_y <= center_y <= item["page_top"] + item["height"] + pad_y:
             return True
     return False
 
@@ -1473,13 +1299,7 @@ def apply_text_layers_to_pdf(
                 ocr_result = ocr_image_chunks(png_path, language=language)
                 ocr_words = ocr_result["words"]
                 if mode == "hybrid" and dom_layer_items:
-                    ocr_words = [
-                        word for word in ocr_words
-                        if not word_overlaps_dom(word, dom_layer_items)
-                        and not word_in_dom_text_band(word, dom_layer_items)
-                        and float(word.get("conf", 0) or 0) >= 70
-                        and len((word.get("text") or "").strip()) <= 60
-                    ]
+                    ocr_words = [word for word in ocr_words if not word_overlaps_dom(word, dom_layer_items)]
                 info.update({
                     "ocr_requested": True,
                     "ocr_applied": bool(ocr_words),
@@ -1505,27 +1325,11 @@ def apply_text_layers_to_pdf(
                 })
 
     combined_items = []
-    if mode == "ocr":
+    if mode in ("dom", "hybrid"):
+        combined_items.extend(dom_layer_items)
+    if mode in ("ocr", "hybrid"):
         combined_items.extend(ocr_words)
-        preserve_input_order = True
-    elif mode == "dom":
-        combined_items.extend(sort_text_layer_items(dom_layer_items))
-        preserve_input_order = True
-    elif mode == "hybrid":
-        combined_items.extend(sort_text_layer_items(dom_layer_items))
-        combined_items.extend(ocr_words)
-        preserve_input_order = True
-    else:
-        preserve_input_order = False
-    inserted_total = add_invisible_text_layer_to_pdf(
-        pdf_path,
-        combined_items,
-        image_width,
-        image_height,
-        preserve_input_order=preserve_input_order,
-    )
-    if dom_layer_items:
-        info["dom_text_layer_debug_path"] = write_dom_text_layer_debug(pdf_path, dom_layer_items, image_width, image_height)
+    inserted_total = add_invisible_text_layer_to_pdf(pdf_path, combined_items, image_width, image_height)
     if inserted_total == 0 and mode != "none":
         info["text_layer_status"] = "failed"
         info["text_layer_error"] = "no text layer items inserted"
@@ -1586,7 +1390,6 @@ def apply_ocr_to_pdf(
             ocr_result["words"],
             image_width=image_width,
             image_height=image_height,
-            preserve_input_order=True,
         )
         extracted_text_length = extract_pdf_text_length(pdf_path)
         expected_min = max(20, int(ocr_result["text_length"] * 0.35))
@@ -1875,7 +1678,7 @@ def html_to_seamless_pdf(
     """Convert HTML to a single-page (no page breaks) PDF using Playwright."""
     from playwright.sync_api import sync_playwright
 
-    pdf_width = max(320, int(width or PDF_WIDTH_PX))
+    pdf_width = PDF_WIDTH_PX
     css_inject = f"""
     <style>
     html, body {{ margin: 0 !important; min-height: 100% !important; background: #fff !important; }}
@@ -1912,7 +1715,7 @@ def url_to_seamless_pdf(
     """Fetch Notion URL and convert to seamless PDF."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
-    pdf_width = max(320, int(width or PDF_WIDTH_PX))
+    pdf_width = PDF_WIDTH_PX
     with sync_playwright() as p:
         browser = None
         page = None
@@ -1944,16 +1747,6 @@ def url_to_seamless_pdf(
 
             stage = "Notion 렌더링 대기"
             page.wait_for_timeout(5000)
-
-            stage = "Notion 상단 배너 제거"
-            banner_cleanup = hide_notion_public_banner(page)
-            if banner_cleanup.get("removed_count") or banner_cleanup.get("remaining_banner_text"):
-                print(
-                    "NOTION_BANNER_CLEANUP="
-                    f"removed:{banner_cleanup.get('removed_count')},"
-                    f"remaining:{banner_cleanup.get('remaining_banner_text')},"
-                    f"debug:{banner_cleanup.get('debug_path')}"
-                )
 
             stage = "PDF 스타일 적용"
             page.add_style_tag(content=f"""
