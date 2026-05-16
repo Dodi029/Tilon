@@ -1,0 +1,30 @@
+OCR comparison sample
+Exact targets
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dy lee\AppData\Local\Temp\notion_pdf
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+python -m unittest discover -s tests
+Get-—ChildItem —Path C:\dev\projects\Tilon —Recurse
+from pathlib import Path
+print(Path(r"C:\dev\projects\Tilon\notion_pdf") )
+Repeated OCR targets
+Windows paths
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dy lee\AppData\Local\Temp\notion_pdf
+PowerShell commands
+$env:PORT=5055; $env: FLASK_DEBUG=0; python app.py
+python -m unittest discover -s tests
+Get-—ChildItem -Path C:\dev\projects\Tilon -—Recurse
+Code block
+from pathlib import Path
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
+Windows paths
+C:\dev\projects\Tilon\notion_pdf
+C:\Users\dy lLee\AppData\Local\Temp\notion_pdf
+PowerShell commands
+$env: PORT=5055; $env:FLASK_DEBUG=0; python app.py
+python -m unittest discover -s tests
+Get-ChildItem —Path C:\dev\projects\Tilon —Recurse
+Code block
+from pathlib import Path
+print (Path(r"C:\dev\projects\Tilon\notion_pdf") )

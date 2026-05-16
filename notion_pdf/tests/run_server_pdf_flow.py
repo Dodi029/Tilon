@@ -58,7 +58,7 @@ def create_pdf(sample_path: Path) -> tuple[str, bytes, dict]:
         response = requests.post(
             f"{BASE_URL}/convert/file",
             files={"file": ("server-flow.html", fp, "text/html")},
-            data={"width": "794", "margin": "40"},
+            data={"width": "794", "margin": "40", "ocr": "0"},
             timeout=10,
         )
     response.raise_for_status()
@@ -162,6 +162,7 @@ def main() -> int:
         print(f"PDF_IMAGE_X={status['pdf_image_x']}")
         print(f"PDF_IMAGE_PLACEMENT={status['pdf_image_placement']}")
         print(f"SCALE={status['scale']}")
+        print(f"OCR_STATUS={status['ocr_status']}")
         print(f"PDF_FILE_SIZE={status['pdf_file_size']}")
         print(f"DEBUG_PNG={status['debug_png_path']}")
         return 0

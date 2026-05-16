@@ -43,13 +43,14 @@ class SinglePagePdfTest(unittest.TestCase):
         output_path = Path(tempfile.gettempdir()) / "notion_pdf_single_page_test.pdf"
         html = self.make_long_html()
 
-        result = html_to_seamless_pdf(html, str(output_path), width=PDF_WIDTH_PX, margin=40)
+        result = html_to_seamless_pdf(html, str(output_path), width=PDF_WIDTH_PX, margin=40, ocr=False)
 
         self.assertTrue(output_path.exists())
         self.assertGreater(output_path.stat().st_size, 0)
         self.assertEqual(count_pdf_pages(output_path), 1)
         self.assertEqual(result["pages"], 1)
-        self.assertEqual(result["image_width"], PDF_WIDTH_PX)
+        self.assertEqual(result["image_width"], PDF_WIDTH_PX * 2)
+        self.assertEqual(result["pdf_page_width"], PDF_WIDTH_PX)
         self.assertGreater(result["dom_scroll_height"], 9000)
         self.assertGreater(result["body_scroll_height"], 9000)
         self.assertGreater(result["max_element_bottom"], 9000)
@@ -76,6 +77,7 @@ class SinglePagePdfTest(unittest.TestCase):
             delta=1,
         )
         self.assertEqual(result["pdf_image_x"], 0)
+        self.assertEqual(result["ocr_status"], "disabled")
 
         print(f"DOM_SCROLL_HEIGHT={result['dom_scroll_height']}")
         print(f"BODY_SCROLL_HEIGHT={result['body_scroll_height']}")
@@ -106,8 +108,8 @@ class SinglePagePdfTest(unittest.TestCase):
         scale1_path = Path(tempfile.gettempdir()) / "notion_pdf_scale_1_test.pdf"
         scale2_path = Path(tempfile.gettempdir()) / "notion_pdf_scale_2_test.pdf"
 
-        scale1 = html_to_seamless_pdf(html, str(scale1_path), width=PDF_WIDTH_PX, margin=40, scale=1)
-        scale2 = html_to_seamless_pdf(html, str(scale2_path), width=PDF_WIDTH_PX, margin=40, scale=2)
+        scale1 = html_to_seamless_pdf(html, str(scale1_path), width=PDF_WIDTH_PX, margin=40, scale=1, ocr=False)
+        scale2 = html_to_seamless_pdf(html, str(scale2_path), width=PDF_WIDTH_PX, margin=40, scale=2, ocr=False)
 
         self.assertEqual(count_pdf_pages(scale1_path), 1)
         self.assertEqual(count_pdf_pages(scale2_path), 1)

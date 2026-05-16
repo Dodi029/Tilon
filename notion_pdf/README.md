@@ -9,6 +9,14 @@ python -m pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
+OCR 텍스트 레이어까지 넣으려면 로컬에 OCRmyPDF와 Tesseract 언어 데이터가 추가로 필요합니다. macOS 예시는 다음과 같습니다.
+
+```bash
+brew install ocrmypdf tesseract tesseract-lang
+```
+
+기본 OCR 언어는 `kor+eng`입니다. 필요하면 `OCR_LANG` 환경변수로 바꿀 수 있습니다.
+
 ## 서버 실행
 
 ```bash
@@ -20,6 +28,16 @@ python app.py
 ```text
 http://localhost:5000
 ```
+
+## 외부 공개
+
+현재 개발 환경에서는 Cloudflare Tunnel로 Mac mini의 로컬 Flask 서버를 외부 HTTPS 주소로 임시 공개할 수 있습니다.
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:5000
+```
+
+성공하면 `https://xxxxx.trycloudflare.com` 형식의 주소가 표시되며, 다른 PC나 외부 사용자에게 이 주소를 전달해 접속할 수 있습니다. 자세한 절차는 `docs/배포가이드.md`를 참고하세요.
 
 다른 포트를 쓰려면 `PORT` 환경변수를 지정합니다.
 
@@ -38,8 +56,9 @@ $env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
 7. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
 8. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
 9. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
-10. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
-11. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+10. OCR 옵션이 켜져 있고 `ocrmypdf`가 있으면 텍스트 레이어를 추가합니다.
+11. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+12. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
 
 ## 테스트
 

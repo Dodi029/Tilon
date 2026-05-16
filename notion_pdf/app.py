@@ -201,7 +201,7 @@ HTML_PAGE = '''<!DOCTYPE html>
 
   .options {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(4, 1fr);
     gap: 0.75rem;
     margin-bottom: 1.5rem;
   }
@@ -443,6 +443,21 @@ HTML_PAGE = '''<!DOCTYPE html>
           <option value="60">넓게 (60px)</option>
         </select>
       </div>
+      <div class="option-group">
+        <label class="label">화질</label>
+        <select id="qualityScale">
+          <option value="2">고화질 (2x)</option>
+          <option value="1">보통 (1x)</option>
+          <option value="3">최고화질 (3x)</option>
+        </select>
+      </div>
+      <div class="option-group">
+        <label class="label">OCR</label>
+        <select id="enableOcr">
+          <option value="1">자동</option>
+          <option value="0">끄기</option>
+        </select>
+      </div>
     </div>
 
     <button class="btn" id="convertBtn" onclick="convert()">
@@ -527,6 +542,8 @@ async function convert() {
   const margin = document.getElementById('margin').value;
   const scaleEl = document.getElementById('qualityScale');
   const scale = scaleEl ? scaleEl.value : '2';
+  const ocrEl = document.getElementById('enableOcr');
+  const ocr = ocrEl ? ocrEl.value === '1' : true;
 
   try {
     let response;
@@ -539,7 +556,7 @@ async function convert() {
       response = await fetch('/convert/url', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale) })
+        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale), ocr })
       });
     } else {
       if (!selectedFile) { alert('파일을 선택해주세요.'); btn.disabled=false; return; }
@@ -549,6 +566,7 @@ async function convert() {
       fd.append('width', width);
       fd.append('margin', margin);
       fd.append('scale', scale);
+      fd.append('ocr', ocr ? '1' : '0');
       response = await fetch('/convert/file', { method: 'POST', body: fd });
     }
 
@@ -640,10 +658,19 @@ PDF_MIN_BOTTOM_MARGIN_PX = 40
 PDF_MIN_SIDE_MARGIN_PX = 40
 PDF_HEIGHT_TOLERANCE_PX = 150
 PDF_BACKGROUND_COLOR = (255, 255, 255)
+PDF_OCR_LANGUAGE = os.environ.get("OCR_LANG", "kor+eng")
+PDF_OCR_TIMEOUT_SECONDS = int(os.environ.get("OCR_TIMEOUT_SECONDS", "300"))
 
 def make_job_id():
     import uuid
     return str(uuid.uuid4())[:8]
+
+def parse_bool(value, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
 
 def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tuple[str, str]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -801,6 +828,84 @@ def get_png_size(png_path: str) -> tuple[int, int]:
     height = int.from_bytes(header[20:24], "big")
     return width, height
 
+def apply_ocr_to_pdf(pdf_path: str, enabled: bool = True, language: str = PDF_OCR_LANGUAGE) -> dict:
+    """Apply OCR with OCRmyPDF when it is available locally."""
+    if not enabled:
+        return {
+            "ocr_requested": False,
+            "ocr_applied": False,
+            "ocr_status": "disabled",
+            "ocr_language": language,
+            "ocr_engine": None,
+            "ocr_error": None,
+        }
+
+    ocrmypdf_bin = shutil.which("ocrmypdf")
+    if not ocrmypdf_bin:
+        return {
+            "ocr_requested": True,
+            "ocr_applied": False,
+            "ocr_status": "skipped",
+            "ocr_language": language,
+            "ocr_engine": None,
+            "ocr_error": "ocrmypdf command not found",
+        }
+
+    import subprocess
+
+    input_path = Path(pdf_path)
+    output_path = input_path.with_name(f"{input_path.stem}_ocr{input_path.suffix}")
+    command = [
+        ocrmypdf_bin,
+        "--skip-text",
+        "--optimize",
+        "0",
+        "--output-type",
+        "pdf",
+        "--language",
+        language,
+        str(input_path),
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=PDF_OCR_TIMEOUT_SECONDS,
+        )
+        if completed.returncode != 0:
+            output_path.unlink(missing_ok=True)
+            error = (completed.stderr or completed.stdout or "").strip()
+            return {
+                "ocr_requested": True,
+                "ocr_applied": False,
+                "ocr_status": "failed",
+                "ocr_language": language,
+                "ocr_engine": "ocrmypdf",
+                "ocr_error": error[-1000:] if error else f"ocrmypdf exited with {completed.returncode}",
+            }
+        output_path.replace(input_path)
+        return {
+            "ocr_requested": True,
+            "ocr_applied": True,
+            "ocr_status": "applied",
+            "ocr_language": language,
+            "ocr_engine": "ocrmypdf",
+            "ocr_error": None,
+        }
+    except subprocess.TimeoutExpired:
+        output_path.unlink(missing_ok=True)
+        return {
+            "ocr_requested": True,
+            "ocr_applied": False,
+            "ocr_status": "failed",
+            "ocr_language": language,
+            "ocr_engine": "ocrmypdf",
+            "ocr_error": f"ocrmypdf timed out after {PDF_OCR_TIMEOUT_SECONDS}s",
+        }
+
 def crop_png_to_content_area(
     png_path: str,
     content_box: dict,
@@ -925,7 +1030,13 @@ def crop_png_to_content_area(
         "background_rgb": f"{bg_color[0]},{bg_color[1]},{bg_color[2]}",
     }
 
-def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_WIDTH_PX, scale: int = 1) -> dict:
+def save_screenshot_as_single_page_pdf(
+    page,
+    output_path: str,
+    width: int = PDF_WIDTH_PX,
+    scale: int = 2,
+    ocr: bool = True,
+) -> dict:
     import img2pdf
 
     scale = max(1, min(int(scale), 3))
@@ -977,6 +1088,7 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
         fp.write(img2pdf.convert(png_path, layout_fun=layout_fun))
 
     Path(png_path).unlink(missing_ok=True)
+    ocr_info = apply_ocr_to_pdf(output_path, enabled=ocr)
     page_count = assert_single_page_pdf(output_path)
     pdf_info = get_pdf_page_info(output_path)
     pdf_ratio = pdf_info["pdf_page_height"] / max(pdf_info["pdf_page_width"], 1)
@@ -997,6 +1109,7 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
         "height_difference": height_difference,
         "allowed_tolerance": allowed_tolerance,
         "scale": scale,
+        **ocr_info,
         "original_image_width": original_image_width,
         "original_image_height": original_image_height,
         "image_width": image_width,
@@ -1016,7 +1129,14 @@ def save_screenshot_as_single_page_pdf(page, output_path: str, width: int = PDF_
     )
     return result
 
-def html_to_seamless_pdf(html_content: str, output_path: str, width: int = 794, margin: int = 40, scale: int = 1):
+def html_to_seamless_pdf(
+    html_content: str,
+    output_path: str,
+    width: int = 794,
+    margin: int = 40,
+    scale: int = 2,
+    ocr: bool = True,
+):
     """Convert HTML to a single-page (no page breaks) PDF using Playwright."""
     from playwright.sync_api import sync_playwright
 
@@ -1041,11 +1161,18 @@ def html_to_seamless_pdf(html_content: str, output_path: str, width: int = 794, 
             device_scale_factor=max(1, min(int(scale), 3)),
         )
         page.set_content(html_content, wait_until="networkidle")
-        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale)
+        result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr)
         browser.close()
         return result
 
-def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: int = 40, scale: int = 1):
+def url_to_seamless_pdf(
+    url: str,
+    output_path: str,
+    width: int = 794,
+    margin: int = 40,
+    scale: int = 2,
+    ocr: bool = True,
+):
     """Fetch Notion URL and convert to seamless PDF."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
@@ -1090,7 +1217,7 @@ def url_to_seamless_pdf(url: str, output_path: str, width: int = 794, margin: in
             """)
 
             stage = "전체 페이지 PNG 캡처 및 PDF 생성"
-            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale)
+            return save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr)
         except Exception as e:
             raise RuntimeError(
                 f"Notion URL 변환 실패 ({stage}). URL: {url}. 접근 상태: {status}. "
@@ -1112,6 +1239,7 @@ def convert_url():
     width = int(data.get('width', 794))
     margin = int(data.get('margin', 40))
     scale = int(data.get('scale', 2))
+    ocr = parse_bool(data.get('ocr'), True)
 
     if not url.startswith('http'):
         return jsonify({'error': '올바른 URL을 입력해주세요.'}), 400
@@ -1122,7 +1250,7 @@ def convert_url():
     def run():
         try:
             output_filename, out = make_timestamped_pdf_path(job_id)
-            result = url_to_seamless_pdf(url, out, width, margin, scale)
+            result = url_to_seamless_pdf(url, out, width, margin, scale, ocr)
             jobs[job_id] = {'status': 'done', 'filename': output_filename, 'path': out, 'error': None, **result}
         except Exception as e:
             jobs[job_id] = {'status': 'error', 'filename': None, 'path': None, 'error': str(e)}
@@ -1136,6 +1264,7 @@ def convert_file():
     width = int(request.form.get('width', 794))
     margin = int(request.form.get('margin', 40))
     scale = int(request.form.get('scale', 2))
+    ocr = parse_bool(request.form.get('ocr'), True)
 
     if not f:
         return jsonify({'error': '파일이 없습니다.'}), 400
@@ -1155,7 +1284,7 @@ def convert_file():
             if ext in ('.html', '.htm'):
                 with open(in_path, 'r', encoding='utf-8', errors='ignore') as fp:
                     html = fp.read()
-                result = html_to_seamless_pdf(html, out, width, margin, scale)
+                result = html_to_seamless_pdf(html, out, width, margin, scale, ocr)
             elif ext == '.pdf':
                 # PDF → re-render as single page via html wrapper trick
                 # Just copy with a note (full re-render from PDF is complex)
