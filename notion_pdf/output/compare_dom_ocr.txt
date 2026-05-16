@@ -1,0 +1,101 @@
+
+
+===== short_html / hybrid =====
+짧은 HTML 샘플
+MasterVD2 short validation
+종료 시 바로 프로비전 가능
+Hyper-V HOST01 PowerShell C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+Get-ChildItem -Path C:\ClusterStorage
+
+
+===== mixed_html / hybrid =====
+한글 영문 경로 명령어 혼합 샘플
+HOST01 운영 점검 0
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+HOST01 운영 점검 1
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+HOST01 운영 점검 2
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+HOST01 운영 점검 3
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+HOST01 운영 점검 4
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+$env:FLASK_DEBUG=@; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+$env:PORT=5055; $env:FLASK_DEBUG=@; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+$env:PORT=5055; $env:FLASK_DEBUG=@; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+$env:PORT=5055; $env:FLASK_DEBUG=@; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+
+
+===== html_upload / hybrid =====
+한글 영문 경로 명령어 혼합 샘플
+HOST01 운영 점검 0
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+HOST01 운영 점검 1
+ENS-NS-HOST01(물리 운영서버01)의 Hyper-V에서 MasterVD2 세팅 완료 후 VD 종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
+PowerShell 명령어와 Windows 경로 복사 검증
+C:\ClusterStorage\Volume1\MasterVD2
+PowerShell
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State
+프 로 비 전 가능
+$env:FLASK_DEBUG=@; python app.py
+Get-VM -Name MasterVD2 | Select-Object VMName, State

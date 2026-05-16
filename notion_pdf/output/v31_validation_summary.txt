@@ -1,0 +1,14 @@
+width_a4: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+width_letter: pages=1 image=1632x7000 pdf=816.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+width_a3: pages=1 image=2246x7000 pdf=1123.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+margin_small: pages=1 image=1588x6960 pdf=794.0x3480.0 margins=40/40 removed_bottom=360 text_chars=2406 mode=dom
+margin_normal: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+margin_large: pages=1 image=1588x7040 pdf=794.0x3520.0 margins=120/120 removed_bottom=440 text_chars=2406 mode=dom
+scale_1: pages=1 image=794x3500 pdf=794.0x3500.0 margins=40/40 removed_bottom=200 text_chars=2406 mode=dom
+scale_2: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+scale_3: pages=1 image=2382x10500 pdf=794.0x3500.0 margins=120/120 removed_bottom=600 text_chars=2406 mode=dom
+layer_none: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=0 mode=none
+layer_ocr: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2522 mode=ocr
+layer_dom: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2406 mode=dom
+layer_hybrid: pages=1 image=1588x7000 pdf=794.0x3500.0 margins=80/80 removed_bottom=400 text_chars=2438 mode=hybrid
+html_upload: job=c90caf7e pages=1 text_chars=2406 output=/Volumes/mac_ssd/external_disk/Git/dev/projects/Tilon/notion_pdf/output/v31_html_upload_result.pdf

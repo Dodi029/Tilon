@@ -2,6 +2,8 @@
 
 Notion HTML 파일 또는 공개 URL을 긴 1페이지 PDF로 변환하는 로컬 Flask 앱입니다. A4 폭 기준인 794px에 맞춰 전체 페이지를 Playwright로 렌더링하고, `page.pdf()`가 아니라 전체 페이지 PNG 스크린샷을 만든 뒤 `img2pdf`로 1페이지 PDF를 생성합니다.
 
+현재 기본 권장 옵션은 `DOM + OCR`입니다. Notion DOM 원문 텍스트를 우선 사용하고, DOM으로 잡히지 않는 이미지 내부 텍스트만 OCR로 보조합니다.
+
 ## 설치
 
 ```bash
@@ -39,6 +41,17 @@ cloudflared tunnel --url http://127.0.0.1:5000
 
 성공하면 `https://xxxxx.trycloudflare.com` 형식의 주소가 표시되며, 다른 PC나 외부 사용자에게 이 주소를 전달해 접속할 수 있습니다. 자세한 절차는 `docs/배포가이드.md`를 참고하세요.
 
+## Windows 문서 인코딩
+
+이 프로젝트의 Markdown/TXT 문서는 UTF-8 기준입니다. Windows에서 한글 문서가 깨져 보이면 편집기 인코딩을 `UTF-8`로 열었는지 확인하세요.
+
+Git 체크아웃 정책은 `.gitattributes`에 기록되어 있습니다.
+
+```text
+*.md text working-tree-encoding=UTF-8 eol=lf
+*.txt text working-tree-encoding=UTF-8 eol=lf
+```
+
 다른 포트를 쓰려면 `PORT` 환경변수를 지정합니다.
 
 ```powershell
@@ -56,9 +69,10 @@ $env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
 7. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
 8. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
 9. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
-10. OCR 옵션이 켜져 있고 `ocrmypdf`가 있으면 텍스트 레이어를 추가합니다.
-11. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
-12. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+10. 기본값은 DOM 원문 우선 + OCR 보조 텍스트 레이어를 추가합니다.
+11. DOM 텍스트 영역과 겹치는 OCR은 제외해 중복 텍스트 삽입을 줄입니다.
+12. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+13. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
 
 ## 테스트
 
@@ -79,5 +93,7 @@ python tests\run_server_pdf_flow.py
 ## 주의
 
 - 공개 Notion URL은 브라우저에서 직접 열리는 상태여야 합니다.
+- 공개 Notion 페이지의 상단 가입/로그인 유도 배너는 캡처 전에 숨깁니다.
+- 텍스트 복사 결과가 원문과 다르면 DOM/OCR 중복 삽입 여부를 먼저 확인하세요.
 - PDF 업로드를 다시 긴 1페이지로 재렌더링하는 기능은 현재 지원하지 않습니다. HTML 파일 또는 URL을 사용하세요.
 - 생성 파일은 OS 임시 폴더 아래 `notion_pdf` 디렉터리에 저장됩니다.

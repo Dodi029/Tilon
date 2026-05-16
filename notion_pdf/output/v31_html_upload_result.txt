@@ -1,0 +1,73 @@
+v3.1 DOM text layer validation
+Hyper-V 운영 점검 0
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 1
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 2
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 3
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 4
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 5
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 6
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
+Hyper-V 운영 점검 7
+종료 시 바로 프로비전 가능 상태를 확인합니다.
+MasterVD와 MasterVD2는 HOST01에서 실행됩니다.
+스토리지 경로는 C:\ClusterStorage\Volume1\MasterVD 입니다.
+MasterVD 상태 확인
+HOST01 리소스 확인
+$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+Get-VM -Name MasterVD | Select-Object VMName, State
+python -m unittest discover -s tests
