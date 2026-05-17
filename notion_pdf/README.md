@@ -29,6 +29,20 @@ python app.py
 http://localhost:5000
 ```
 
+최근 변환 내역은 SQLite에 저장됩니다.
+
+```text
+instance/notion_pdf.db
+```
+
+관리자 확인용 최근 변환 내역 페이지:
+
+```text
+http://localhost:5000/admin/conversions
+```
+
+이 페이지는 별도 인증이 없으므로 외부 공개 시 접근 범위를 신중히 관리해야 합니다.
+
 ## 외부 공개
 
 현재 개발 환경에서는 Cloudflare Tunnel로 Mac mini의 로컬 Flask 서버를 외부 HTTPS 주소로 임시 공개할 수 있습니다.
@@ -43,6 +57,49 @@ cloudflared tunnel --url http://127.0.0.1:5000
 
 ```powershell
 $env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+```
+
+## 상시 실행
+
+Mac mini에서 재부팅 후에도 자동 실행하려면 launchd 예시를 사용합니다.
+
+```bash
+chmod +x scripts/macos/start_flask.sh scripts/macos/start_cloudflare_quick_tunnel.sh
+cp scripts/macos/com.notion_pdf.flask.plist ~/Library/LaunchAgents/
+cp scripts/macos/com.notion_pdf.cloudflare.quick.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.notion_pdf.flask.plist
+launchctl load ~/Library/LaunchAgents/com.notion_pdf.cloudflare.quick.plist
+```
+
+현재 예시는 quick tunnel 기준입니다. quick tunnel은 실행할 때마다 `trycloudflare.com` 임시 주소가 바뀔 수 있습니다. 고정 주소가 필요하면 Cloudflare named tunnel과 고정 도메인으로 확장해야 합니다.
+
+## 자동 삭제
+
+기본 보관 기간은 7일입니다. 만료된 DB 기록과 오래된 PDF/PNG/TXT 파일을 정리합니다.
+
+수동 실행:
+
+```bash
+python cleanup_old_records.py
+```
+
+dry-run:
+
+```bash
+python cleanup_old_records.py --dry-run
+```
+
+하루 1회 자동 실행하려면 launchd 예시를 등록합니다.
+
+```bash
+cp scripts/macos/com.notion_pdf.cleanup.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.notion_pdf.cleanup.plist
+```
+
+정리 로그:
+
+```text
+logs/cleanup.log
 ```
 
 ## PDF 생성 방식
@@ -74,6 +131,12 @@ python -m unittest discover -s tests
 python tests\run_server_pdf_flow.py
 ```
 
+DB와 자동 삭제 검증:
+
+```bash
+python tests\run_db_cleanup_validation.py
+```
+
 성공하면 `SERVER_URL`, `JOB_ID`, DOM/body/wrapper 높이, expected height, screenshot PNG height, height difference, allowed tolerance, 원본 PNG 크기, crop 후 PNG 크기, 제거된 하단 여백, 좌우 여백, PDF 페이지 수, PDF 페이지 크기, debug PNG 경로가 출력됩니다.
 
 ## 주의
@@ -81,3 +144,6 @@ python tests\run_server_pdf_flow.py
 - 공개 Notion URL은 브라우저에서 직접 열리는 상태여야 합니다.
 - PDF 업로드를 다시 긴 1페이지로 재렌더링하는 기능은 현재 지원하지 않습니다. HTML 파일 또는 URL을 사용하세요.
 - 생성 파일은 OS 임시 폴더 아래 `notion_pdf` 디렉터리에 저장됩니다.
+- 외부 공개 시 개인정보나 민감정보가 포함된 문서를 업로드하지 마세요.
+- 업로드 제한은 기본 `MAX_UPLOAD_MB=50`입니다.
+- Mac mini가 절전 모드로 들어가면 Flask 서버와 Cloudflare Tunnel 연결이 끊길 수 있습니다.

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.notion_pdf.cloudflare.quick</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>LOCAL_URL="http://127.0.0.1:5000" "${HOME}/git/dev/projects/Tilon/notion_pdf/scripts/macos/start_cloudflare_quick_tunnel.sh</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/notion_pdf_cloudflared.quick.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/notion_pdf_cloudflared.quick.launchd.err.log</string>
+</dict>
+</plist>

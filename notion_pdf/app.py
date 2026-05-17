@@ -3,11 +3,20 @@ import os, shutil, tempfile, time, threading
 from datetime import datetime
 from pathlib import Path
 
+from db import init_db, list_recent_conversions, record_conversion
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
 UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "notion_pdf"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 DEBUG_OUTPUT_FOLDER = Path(__file__).resolve().parent / "output"
 DEBUG_OUTPUT_FOLDER.mkdir(exist_ok=True)
+LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+try:
+    init_db()
+except Exception as exc:
+    print(f"DB_INIT_ERROR={exc}")
 
 HTML_PAGE = '''<!DOCTYPE html>
 <html lang="ko">
@@ -690,6 +699,30 @@ def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tup
     filename = f"{prefix}_{timestamp}_{job_id}.pdf"
     return filename, str(UPLOAD_FOLDER / filename)
 
+def get_client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.remote_addr or ""
+
+def extract_pdf_text_to_file(pdf_path: str) -> str | None:
+    from pypdf import PdfReader
+
+    try:
+        text = "\n".join((page.extract_text() or "") for page in PdfReader(pdf_path).pages)
+        txt_path = str(Path(pdf_path).with_suffix(".txt"))
+        Path(txt_path).write_text(text, encoding="utf-8")
+        return txt_path
+    except Exception as exc:
+        print(f"PDF_TEXT_EXPORT_ERROR={exc}")
+        return None
+
+def safe_record_conversion(**values) -> None:
+    try:
+        record_conversion(**values)
+    except Exception as exc:
+        print(f"DB_RECORD_ERROR={exc}")
+
 # ─── PDF conversion core ─────────────────────────────────────
 def get_page_height_metrics(page) -> dict:
     """Measure document, body, wrapper, and element-bottom heights."""
@@ -824,6 +857,7 @@ def get_dom_text_layer_items(page) -> list[dict]:
             const node = walker.currentNode;
             const parent = node.parentElement;
             if (!parent || ignoredTags.has(parent.tagName)) continue;
+            if (parent.closest('[data-notion-pdf-hidden="1"]')) continue;
             const style = window.getComputedStyle(parent);
             if (
                 style.display === 'none' ||
@@ -850,11 +884,14 @@ def get_dom_text_layer_items(page) -> list[dict]:
                 .filter((rect) => rect.width > 0 && rect.height > 0);
             range.detach();
             if (!rects.length) continue;
-            const first = rects[0];
-            const left = Math.min(...rects.map((rect) => rect.left));
-            const top = Math.min(...rects.map((rect) => rect.top));
-            const right = Math.max(...rects.map((rect) => rect.right));
-            const bottom = Math.max(...rects.map((rect) => rect.bottom));
+            const docHeight = Math.max(document.documentElement.scrollHeight || 0, document.body.scrollHeight || 0);
+            const visibleRects = rects.filter((rect) => rect.bottom >= 0 && rect.top <= docHeight);
+            if (!visibleRects.length) continue;
+            const first = visibleRects[0];
+            const left = Math.min(...visibleRects.map((rect) => rect.left));
+            const top = Math.min(...visibleRects.map((rect) => rect.top));
+            const right = Math.max(...visibleRects.map((rect) => rect.right));
+            const bottom = Math.max(...visibleRects.map((rect) => rect.bottom));
             results.push({
                 text,
                 left: first.left,
@@ -875,6 +912,70 @@ def get_dom_text_layer_items(page) -> list[dict]:
         return results;
     }""")
     return items or []
+
+def hide_notion_public_banner(page) -> dict:
+    """Hide Notion public sign-up/login chrome without touching document content."""
+    result = page.evaluate("""() => {
+        const phrases = [
+            "You're almost there",
+            "sign up to start building in Notion today",
+            "Sign up or login",
+        ];
+        const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+        const hasBannerText = (el) => {
+            const text = normalize(el.innerText || el.textContent || '');
+            return phrases.some((phrase) => text.includes(phrase));
+        };
+        const isDocumentContent = (el) => {
+            return !!el.closest('main, article, .notion-page-content, .notion-page-content-inner');
+        };
+        const containsDocumentContent = (el) => {
+            return !!el.querySelector('main, article, .notion-page-content, .notion-page-content-inner');
+        };
+        const candidates = Array.from(document.querySelectorAll([
+            '[role="banner"]',
+            'header',
+            'nav',
+            '[style*="position: fixed"]',
+            '[style*="position:fixed"]',
+            '[style*="position: sticky"]',
+            '[style*="position:sticky"]',
+        ].join(',')));
+        const removed = [];
+        for (const el of candidates) {
+            if (!el || el.dataset.notionPdfHidden === '1') continue;
+            if (!hasBannerText(el)) continue;
+            if (isDocumentContent(el) || containsDocumentContent(el)) continue;
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isTopChrome = (
+                (el.getAttribute('role') || '').toLowerCase() === 'banner' ||
+                ['header', 'nav'].includes(el.tagName.toLowerCase()) ||
+                ['fixed', 'sticky'].includes(style.position)
+            );
+            if (!isTopChrome) continue;
+            if (rect.top > 320 && !['fixed', 'sticky'].includes(style.position)) continue;
+            if (rect.height > Math.max(220, window.innerHeight * 0.35)) continue;
+            el.dataset.notionPdfHidden = '1';
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            removed.push({
+                tag: el.tagName.toLowerCase(),
+                role: el.getAttribute('role') || '',
+                text: normalize(el.innerText || el.textContent || '').slice(0, 180),
+                top: rect.top + window.scrollY,
+                height: rect.height,
+                position: style.position,
+            });
+        }
+        const remainingText = normalize(document.body ? document.body.innerText : '');
+        return {
+            removed_count: removed.length,
+            removed,
+            remaining_banner_text: phrases.filter((phrase) => remainingText.includes(phrase)),
+        };
+    }""")
+    return result or {"removed_count": 0, "removed": [], "remaining_banner_text": []}
 
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
@@ -1235,6 +1336,14 @@ def word_overlaps_dom(word: dict, dom_items: list[dict]) -> bool:
             return True
     return False
 
+def word_in_dom_text_band(word: dict, dom_items: list[dict]) -> bool:
+    center_y = word["page_top"] + (word["height"] / 2)
+    for item in dom_items:
+        pad_y = max(4, item["height"] * 0.8)
+        if item["page_top"] - pad_y <= center_y <= item["page_top"] + item["height"] + pad_y:
+            return True
+    return False
+
 def empty_text_layer_info(mode: str, status: str, error: str | None = None) -> dict:
     return {
         "text_layer_mode": mode,
@@ -1299,7 +1408,11 @@ def apply_text_layers_to_pdf(
                 ocr_result = ocr_image_chunks(png_path, language=language)
                 ocr_words = ocr_result["words"]
                 if mode == "hybrid" and dom_layer_items:
-                    ocr_words = [word for word in ocr_words if not word_overlaps_dom(word, dom_layer_items)]
+                    ocr_words = [
+                        word for word in ocr_words
+                        if not word_overlaps_dom(word, dom_layer_items)
+                        and not word_in_dom_text_band(word, dom_layer_items)
+                    ]
                 info.update({
                     "ocr_requested": True,
                     "ocr_applied": bool(ocr_words),
@@ -1748,6 +1861,15 @@ def url_to_seamless_pdf(
             stage = "Notion 렌더링 대기"
             page.wait_for_timeout(5000)
 
+            stage = "Notion 상단 배너 제거"
+            banner_cleanup = hide_notion_public_banner(page)
+            if banner_cleanup.get("removed_count") or banner_cleanup.get("remaining_banner_text"):
+                print(
+                    "NOTION_BANNER_CLEANUP="
+                    f"removed:{banner_cleanup.get('removed_count')},"
+                    f"remaining:{banner_cleanup.get('remaining_banner_text')}"
+                )
+
             stage = "PDF 스타일 적용"
             page.add_style_tag(content=f"""
                 html, body {{ margin: 0 !important; min-height: 100% !important; background: #fff !important; }}
@@ -1780,19 +1902,59 @@ def convert_url():
     scale = int(data.get('scale', 2))
     ocr = parse_bool(data.get('ocr'), True)
     text_layer_mode = normalize_text_layer_mode(data.get('text_layer_mode'), ocr)
+    client_ip = get_client_ip()
 
     if not url.startswith('http'):
+        safe_record_conversion(
+            source_type="url",
+            source_url=url,
+            page_width=width,
+            margin=margin,
+            quality_scale=scale,
+            text_layer_mode=text_layer_mode,
+            status="failed",
+            error_message="invalid url",
+            client_ip=client_ip,
+        )
         return jsonify({'error': '올바른 URL을 입력해주세요.'}), 400
 
     job_id = make_job_id()
     jobs[job_id] = {'status': 'processing', 'filename': None, 'path': None, 'error': None}
 
     def run():
+        output_filename = None
+        out = None
         try:
             output_filename, out = make_timestamped_pdf_path(job_id)
             result = url_to_seamless_pdf(url, out, width, margin, scale, ocr, text_layer_mode)
+            txt_path = extract_pdf_text_to_file(out)
+            safe_record_conversion(
+                source_type="url",
+                source_url=url,
+                output_pdf_path=out,
+                output_txt_path=txt_path,
+                page_width=width,
+                margin=margin,
+                quality_scale=scale,
+                text_layer_mode=text_layer_mode,
+                status="success",
+                file_size=Path(out).stat().st_size if Path(out).exists() else None,
+                client_ip=client_ip,
+            )
             jobs[job_id] = {'status': 'done', 'filename': output_filename, 'path': out, 'error': None, **result}
         except Exception as e:
+            safe_record_conversion(
+                source_type="url",
+                source_url=url,
+                output_pdf_path=out,
+                page_width=width,
+                margin=margin,
+                quality_scale=scale,
+                text_layer_mode=text_layer_mode,
+                status="failed",
+                error_message=str(e),
+                client_ip=client_ip,
+            )
             jobs[job_id] = {'status': 'error', 'filename': None, 'path': None, 'error': str(e)}
 
     threading.Thread(target=run, daemon=True).start()
@@ -1806,8 +1968,19 @@ def convert_file():
     scale = int(request.form.get('scale', 2))
     ocr = parse_bool(request.form.get('ocr'), True)
     text_layer_mode = normalize_text_layer_mode(request.form.get('text_layer_mode'), ocr)
+    client_ip = get_client_ip()
 
     if not f:
+        safe_record_conversion(
+            source_type="html_upload",
+            page_width=width,
+            margin=margin,
+            quality_scale=scale,
+            text_layer_mode=text_layer_mode,
+            status="failed",
+            error_message="missing file",
+            client_ip=client_ip,
+        )
         return jsonify({'error': '파일이 없습니다.'}), 400
 
     filename = f.filename
@@ -1819,6 +1992,8 @@ def convert_file():
     f.save(in_path)
 
     def run():
+        output_filename = None
+        out = None
         try:
             stem = Path(filename).stem or "notion_export"
             output_filename, out = make_timestamped_pdf_path(job_id, f"{stem}_seamless")
@@ -1832,8 +2007,35 @@ def convert_file():
                 raise RuntimeError("PDF upload is not supported for screenshot-based single-page regeneration. Use a Notion URL or HTML file.")
             else:
                 raise RuntimeError(f"지원하지 않는 파일 형식입니다: {ext}")
+            txt_path = extract_pdf_text_to_file(out)
+            safe_record_conversion(
+                source_type="html_upload",
+                original_filename=filename,
+                output_pdf_path=out,
+                output_txt_path=txt_path,
+                page_width=width,
+                margin=margin,
+                quality_scale=scale,
+                text_layer_mode=text_layer_mode,
+                status="success",
+                file_size=Path(out).stat().st_size if Path(out).exists() else None,
+                client_ip=client_ip,
+            )
             jobs[job_id] = {'status': 'done', 'filename': output_filename, 'path': out, 'error': None, **result}
         except Exception as e:
+            safe_record_conversion(
+                source_type="html_upload",
+                original_filename=filename,
+                output_pdf_path=out,
+                page_width=width,
+                margin=margin,
+                quality_scale=scale,
+                text_layer_mode=text_layer_mode,
+                status="failed",
+                error_message=str(e),
+                file_size=Path(out).stat().st_size if out and Path(out).exists() else None,
+                client_ip=client_ip,
+            )
             jobs[job_id] = {'status': 'error', 'filename': None, 'path': None, 'error': str(e)}
 
     threading.Thread(target=run, daemon=True).start()
@@ -1852,6 +2054,61 @@ def download(job_id):
     if not job or job['status'] != 'done':
         return "Not found", 404
     return send_file(job['path'], as_attachment=True, download_name=job['filename'])
+
+@app.route('/admin/conversions')
+def admin_conversions():
+    try:
+        rows = list_recent_conversions(limit=100)
+    except Exception as exc:
+        return f"DB error: {exc}", 500
+    return render_template_string(
+        """<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>notion_pdf conversions</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; color: #111; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }
+    th { background: #f6f6f6; text-align: left; }
+    .success { color: #047857; font-weight: 700; }
+    .failed { color: #b91c1c; font-weight: 700; }
+    .path { max-width: 280px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>최근 변환 내역</h1>
+  <p>최대 100건을 표시합니다. 이 페이지는 로컬/터널 접근 권한이 있는 관리자 확인용입니다.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Created</th><th>Source</th><th>Status</th><th>Mode</th>
+        <th>PDF</th><th>TXT</th><th>Size</th><th>IP</th><th>Expires</th><th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.id }}</td>
+        <td>{{ row.created_at }}</td>
+        <td>{{ row.source_type }}<br>{{ row.source_url or row.original_filename or "" }}</td>
+        <td class="{{ row.status }}">{{ row.status }}</td>
+        <td>{{ row.text_layer_mode }}</td>
+        <td class="path">{{ row.output_pdf_path or "" }}</td>
+        <td class="path">{{ row.output_txt_path or "" }}</td>
+        <td>{{ row.file_size or "" }}</td>
+        <td>{{ row.client_ip or "" }}</td>
+        <td>{{ row.expires_at }}</td>
+        <td>{{ row.error_message or "" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>""",
+        rows=rows,
+    )
 
 if __name__ == '__main__':
     print("서버 시작: http://localhost:5000")

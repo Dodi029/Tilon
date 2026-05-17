@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.notion_pdf.cleanup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "${HOME}/git/dev/projects/Tilon/notion_pdf" &amp;&amp; source .venv/bin/activate 2&gt;/dev/null || true; cd "${HOME}/git/dev/projects/Tilon/notion_pdf" &amp;&amp; python cleanup_old_records.py</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>10</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/notion_pdf_cleanup.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/notion_pdf_cleanup.launchd.err.log</string>
+</dict>
+</plist>

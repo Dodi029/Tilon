@@ -1,5 +1,10 @@
 OCR comparison sample
 운영 점검 문장
+CenterPost에서 바라보는 MasterVD2의 위치는 운영서버들의 중앙 백업 지점입니다.
+위 과정으로 프로비전 속도 증가 및 백업 역할 수행
+종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
 MasterVD와 HOST01은 프로비전가능 상태입니다.
 MasterVD2 경로는 C:\ClusterStorage\Volume1\MasterVD2 입니다.
 Project Overview Title
@@ -7,6 +12,11 @@ This paragraph checks body text extraction from a Notion style page.
 List item one for OCR validation
 List item two with mixed Korean and English OCR text
 Exact targets
+CenterPost에서 바라보는 MasterVD2의 위치는 운영서버들의
+위 과정으로 프로비전 속도 증가 및 백업 역할 수행
+종료 시 바로 프로비전 가능
+처음부터 HOST01 서버에 MasterVD2를 생성하여 복사/덮어쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdx를 실행하는 새로운 컴퓨터
 MasterVD
 MasterVD2
 HOST01

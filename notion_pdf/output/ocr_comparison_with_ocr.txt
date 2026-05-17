@@ -1,17 +1,27 @@
 OCR comparison sample
 운영 점검 문장
+CenterPostO|Aj 바 라 보 는 MasterVD22| 위 치 는 운 영 서 버 들 의 중앙 백업 지 점 입니다.
+위 과 정 으로 프 로 비 전 속도 증가 및 백업 역할 수행
+종료 시 바로 프 로 비 전 가능
+처 음 부터 HOSTO1 서 버 에 MasterVD2E 생 성 하여 복 사 / 덮 어 쓰기과정 불필요
+MasterVD2 : MasterVD.vhdxS 실 행 하는 새로운 컴퓨터
 MasterVD2} HOST012 프 로 비 전 가 능 상 태 입니다.
-MasterVD2 경 로 는 0:(2146[6「68[0『2306@\\/0141761\412868160/1ㅁ2 입니다.
+MasterVD2 경 로 는 0:\((2146[6「6【0「396\/0141061\4861600/ ㅁ2 입니다.
 Project Overview Title
 This paragraph checks body text extraction from a Notion style page.
 e List item one for OCR validation
 e List item two with mixed Korean and English OCR text
 Exact targets
+CenterPostOlA| 바 라 보 는 MasterVD22| 위 치 는 운 영 서 버 들의
+위 과 정 으로 프 로 비 전 속도 증가 및 백업 역할 수행
+종료 시 바로 프 로 비 전 가능
+ASHE] 105101 서 버 에 MasterVD2S 생 성 하여 복 사/덮 어 쓰기 과정 불필요
+MasterVD2 : MasterVD.vhdxS 실 행 하는 새로운 컴퓨터
 MasterVD
 MastervD2
-HOST@1
+HOSTQ1
 C:\ClusterStorage
-프 로 비 전 가능
+프 로 비 전 가 능
 MasterVD2} HOST@12 프 로 비 전 가 능 상 태 입니다,
 Project Overview Title
 This paragraph checks body text extraction from a Notion style
@@ -19,7 +29,7 @@ page.
 List item one for OCR validation
 C:\dev\projects\Tilon\notion_pdf
 C:\Users\dylee\AppData\Local\Temp\notion_pdf
-$env:PORT=5055; $env:FLASK_DEBUG=0; python app.py
+$env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
 python -m unittest discover -5 tests
 Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
 from pathlib import Path
@@ -33,7 +43,7 @@ PowerShell commands
 $env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
 Get-VM -Name MasterVD | Select-Object VMName, State
 python -m unittest discover -5 tests
-Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
 Code block
 from pathlib import Path
 print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
@@ -45,7 +55,7 @@ PowerShell commands
 $env:PORT=5@55; $env:FLASK_DEBUG=0; python app.py
 Get-VM -Name MasterVD | Select-Object VMName, State
 python -m unittest discover -5 tests
-Get-ChildItem -Path C:\dev\projects\Tilon —-Recurse
+Get-ChildItem -Path C:\dev\projects\Tilon -Recurse
 Code block
-from pathlib import Path
-print (Path(r"C:\dev\projects\Tilon\notion_pdf") )
+from nathlih imnort Path
+print(Path(r"C:\dev\projects\Tilon\notion_pdf") )
