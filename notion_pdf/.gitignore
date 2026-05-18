@@ -5,3 +5,7 @@ instance/*.db
 instance/*.db-*
 logs/*.log
 logs/*.err.log
+uploads/*
+!uploads/.gitkeep
+output/server-flow_seamless_*
+lsof

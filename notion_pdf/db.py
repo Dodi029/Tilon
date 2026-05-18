@@ -38,8 +38,12 @@ def init_db(db_path: Path = DB_PATH) -> None:
                 source_type TEXT NOT NULL,
                 source_url TEXT,
                 original_filename TEXT,
+                input_file_path TEXT,
+                input_file_size INTEGER,
+                input_original_name TEXT,
                 output_pdf_path TEXT,
                 output_txt_path TEXT,
+                output_png_path TEXT,
                 page_width INTEGER,
                 margin INTEGER,
                 quality_scale INTEGER,
@@ -52,6 +56,19 @@ def init_db(db_path: Path = DB_PATH) -> None:
             )
             """
         )
+        existing_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(conversions)").fetchall()
+        }
+        migrations = {
+            "input_file_path": "ALTER TABLE conversions ADD COLUMN input_file_path TEXT",
+            "input_file_size": "ALTER TABLE conversions ADD COLUMN input_file_size INTEGER",
+            "input_original_name": "ALTER TABLE conversions ADD COLUMN input_original_name TEXT",
+            "output_png_path": "ALTER TABLE conversions ADD COLUMN output_png_path TEXT",
+        }
+        for column, sql in migrations.items():
+            if column not in existing_columns:
+                conn.execute(sql)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conversions_created_at ON conversions(created_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conversions_expires_at ON conversions(expires_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conversions_status ON conversions(status)")
@@ -65,8 +82,12 @@ def record_conversion(**values) -> int | None:
         "source_type": values.get("source_type") or "",
         "source_url": values.get("source_url"),
         "original_filename": values.get("original_filename"),
+        "input_file_path": values.get("input_file_path"),
+        "input_file_size": values.get("input_file_size"),
+        "input_original_name": values.get("input_original_name"),
         "output_pdf_path": values.get("output_pdf_path"),
         "output_txt_path": values.get("output_txt_path"),
+        "output_png_path": values.get("output_png_path"),
         "page_width": values.get("page_width"),
         "margin": values.get("margin"),
         "quality_scale": values.get("quality_scale"),
@@ -100,6 +121,16 @@ def list_recent_conversions(limit: int = 50) -> list[dict]:
             (limit,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_conversion(conversion_id: int) -> dict | None:
+    init_db()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM conversions WHERE id = ?",
+            (conversion_id,),
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def delete_expired_records(now: datetime | None = None) -> list[dict]:

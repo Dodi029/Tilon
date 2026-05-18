@@ -8,10 +8,11 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>LOCAL_URL="http://127.0.0.1:5000" "${HOME}/git/dev/projects/Tilon/notion_pdf/scripts/macos/start_cloudflare_quick_tunnel.sh</string>
+    <string>/Volumes/mac_ssd/external_disk/Git/dev/projects/Tilon/notion_pdf/scripts/macos/start_cloudflare_quick_tunnel.sh</string>
   </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Volumes/mac_ssd/external_disk/Git/dev/projects/Tilon/notion_pdf</string>
 
   <key>RunAtLoad</key>
   <true/>

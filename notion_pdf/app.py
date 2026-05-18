@@ -2,17 +2,24 @@ from flask import Flask, request, jsonify, send_file, render_template_string
 import os, shutil, tempfile, time, threading
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-from db import init_db, list_recent_conversions, record_conversion
+from werkzeug.utils import secure_filename
+
+from db import get_conversion, init_db, list_recent_conversions, record_conversion
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024
-UPLOAD_FOLDER = Path(tempfile.gettempdir()) / "notion_pdf"
-UPLOAD_FOLDER.mkdir(exist_ok=True)
-DEBUG_OUTPUT_FOLDER = Path(__file__).resolve().parent / "output"
+ROOT_DIR = Path(__file__).resolve().parent
+UPLOADS_FOLDER = ROOT_DIR / "uploads"
+UPLOADS_FOLDER.mkdir(exist_ok=True)
+OUTPUT_FOLDER = ROOT_DIR / "output"
+OUTPUT_FOLDER.mkdir(exist_ok=True)
+DEBUG_OUTPUT_FOLDER = OUTPUT_FOLDER
 DEBUG_OUTPUT_FOLDER.mkdir(exist_ok=True)
-LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR = ROOT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
+ALLOWED_UPLOAD_EXTENSIONS = {"html", "htm", "zip", "pdf", "txt"}
 try:
     init_db()
 except Exception as exc:
@@ -696,8 +703,21 @@ def normalize_text_layer_mode(value=None, ocr_enabled: bool = True) -> str:
 
 def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tuple[str, str]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{prefix}_{timestamp}_{job_id}.pdf"
-    return filename, str(UPLOAD_FOLDER / filename)
+    safe_prefix = secure_filename(prefix) or "notion_export"
+    filename = f"{safe_prefix}_{timestamp}_{job_id}.pdf"
+    return filename, str(OUTPUT_FOLDER / filename)
+
+def make_uploaded_input_path(job_id: str, original_name: str) -> tuple[str, str]:
+    safe_name = secure_filename(original_name or "upload")
+    ext = Path(safe_name).suffix.lower()
+    stem = Path(safe_name).stem or "upload"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stored_name = f"{timestamp}_{job_id}_{uuid4().hex[:8]}_{stem}{ext}"
+    return stored_name, str(UPLOADS_FOLDER / stored_name)
+
+def allowed_upload_extension(filename: str) -> bool:
+    ext = Path(filename or "").suffix.lower().lstrip(".")
+    return ext in ALLOWED_UPLOAD_EXTENSIONS
 
 def get_client_ip() -> str:
     forwarded = request.headers.get("X-Forwarded-For", "")
@@ -717,11 +737,26 @@ def extract_pdf_text_to_file(pdf_path: str) -> str | None:
         print(f"PDF_TEXT_EXPORT_ERROR={exc}")
         return None
 
-def safe_record_conversion(**values) -> None:
+def safe_record_conversion(**values) -> int | None:
     try:
-        record_conversion(**values)
+        return record_conversion(**values)
     except Exception as exc:
         print(f"DB_RECORD_ERROR={exc}")
+        return None
+
+def is_authorized_admin_request() -> bool:
+    # Authentication can be added here without changing admin/download routes.
+    return True
+
+def file_path_is_allowed(path_value: str | None) -> bool:
+    if not path_value:
+        return False
+    try:
+        resolved = Path(path_value).resolve()
+        allowed_roots = [UPLOADS_FOLDER.resolve(), OUTPUT_FOLDER.resolve()]
+        return any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots)
+    except Exception:
+        return False
 
 # ─── PDF conversion core ─────────────────────────────────────
 def get_page_height_metrics(page) -> dict:
@@ -1737,7 +1772,6 @@ def save_screenshot_as_single_page_pdf(
         dom_items=dom_text_items,
         crop_metrics=crop_metrics,
     )
-    Path(png_path).unlink(missing_ok=True)
     page_count = assert_single_page_pdf(output_path)
     pdf_info = get_pdf_page_info(output_path)
     pdf_ratio = pdf_info["pdf_page_height"] / max(pdf_info["pdf_page_width"], 1)
@@ -1772,6 +1806,7 @@ def save_screenshot_as_single_page_pdf(
         "pdf_file_size": Path(output_path).stat().st_size,
         "debug_png_path": str(debug_png_path),
         "pdf_path": output_path,
+        "png_path": png_path,
     }
     print(
         f"PDF 생성 완료: PAGES={page_count}, "
@@ -1933,6 +1968,7 @@ def convert_url():
                 source_url=url,
                 output_pdf_path=out,
                 output_txt_path=txt_path,
+                output_png_path=result.get("png_path"),
                 page_width=width,
                 margin=margin,
                 quality_scale=scale,
@@ -1983,13 +2019,29 @@ def convert_file():
         )
         return jsonify({'error': '파일이 없습니다.'}), 400
 
-    filename = f.filename
+    filename = f.filename or ""
     job_id = make_job_id()
     jobs[job_id] = {'status': 'processing', 'filename': None, 'path': None, 'error': None}
 
     ext = Path(filename).suffix.lower()
-    in_path = str(UPLOAD_FOLDER / f"{job_id}_input{ext}")
+    if not allowed_upload_extension(filename):
+        safe_record_conversion(
+            source_type="html_upload",
+            input_original_name=filename,
+            original_filename=filename,
+            page_width=width,
+            margin=margin,
+            quality_scale=scale,
+            text_layer_mode=text_layer_mode,
+            status="failed",
+            error_message=f"unsupported file extension: {ext}",
+            client_ip=client_ip,
+        )
+        return jsonify({'error': '지원하지 않는 파일 형식입니다.'}), 400
+
+    stored_input_name, in_path = make_uploaded_input_path(job_id, filename)
     f.save(in_path)
+    input_file_size = Path(in_path).stat().st_size if Path(in_path).exists() else None
 
     def run():
         output_filename = None
@@ -2011,8 +2063,12 @@ def convert_file():
             safe_record_conversion(
                 source_type="html_upload",
                 original_filename=filename,
+                input_original_name=filename,
+                input_file_path=in_path,
+                input_file_size=input_file_size,
                 output_pdf_path=out,
                 output_txt_path=txt_path,
+                output_png_path=result.get("png_path"),
                 page_width=width,
                 margin=margin,
                 quality_scale=scale,
@@ -2026,6 +2082,9 @@ def convert_file():
             safe_record_conversion(
                 source_type="html_upload",
                 original_filename=filename,
+                input_original_name=filename,
+                input_file_path=in_path,
+                input_file_size=input_file_size,
                 output_pdf_path=out,
                 page_width=width,
                 margin=margin,
@@ -2054,6 +2113,30 @@ def download(job_id):
     if not job or job['status'] != 'done':
         return "Not found", 404
     return send_file(job['path'], as_attachment=True, download_name=job['filename'])
+
+@app.route('/admin/conversions/<int:conversion_id>/download/<file_kind>')
+def admin_download_conversion_file(conversion_id, file_kind):
+    if not is_authorized_admin_request():
+        return "Forbidden", 403
+    row = get_conversion(conversion_id)
+    if not row:
+        return "Not found", 404
+    path_fields = {
+        "input": "input_file_path",
+        "pdf": "output_pdf_path",
+        "txt": "output_txt_path",
+        "png": "output_png_path",
+    }
+    field = path_fields.get(file_kind)
+    if not field:
+        return "Not found", 404
+    path_value = row.get(field)
+    if not file_path_is_allowed(path_value):
+        return "Not found", 404
+    path = Path(path_value).resolve()
+    if not path.exists() or not path.is_file():
+        return "Not found", 404
+    return send_file(path, as_attachment=True, download_name=path.name)
 
 @app.route('/admin/conversions')
 def admin_conversions():
@@ -2084,7 +2167,7 @@ def admin_conversions():
     <thead>
       <tr>
         <th>ID</th><th>Created</th><th>Source</th><th>Status</th><th>Mode</th>
-        <th>PDF</th><th>TXT</th><th>Size</th><th>IP</th><th>Expires</th><th>Error</th>
+        <th>Input</th><th>PDF</th><th>TXT</th><th>PNG</th><th>Size</th><th>IP</th><th>Expires</th><th>Error</th>
       </tr>
     </thead>
     <tbody>
@@ -2095,8 +2178,19 @@ def admin_conversions():
         <td>{{ row.source_type }}<br>{{ row.source_url or row.original_filename or "" }}</td>
         <td class="{{ row.status }}">{{ row.status }}</td>
         <td>{{ row.text_layer_mode }}</td>
-        <td class="path">{{ row.output_pdf_path or "" }}</td>
-        <td class="path">{{ row.output_txt_path or "" }}</td>
+        <td class="path">
+          {{ row.input_original_name or row.original_filename or "" }}<br>
+          {% if row.input_file_path %}<a href="/admin/conversions/{{ row.id }}/download/input">원본 다운로드</a><br>{{ row.input_file_path }}{% endif %}
+        </td>
+        <td class="path">
+          {% if row.output_pdf_path %}<a href="/admin/conversions/{{ row.id }}/download/pdf">PDF 다운로드</a><br>{{ row.output_pdf_path }}{% endif %}
+        </td>
+        <td class="path">
+          {% if row.output_txt_path %}<a href="/admin/conversions/{{ row.id }}/download/txt">TXT 다운로드</a><br>{{ row.output_txt_path }}{% endif %}
+        </td>
+        <td class="path">
+          {% if row.output_png_path %}<a href="/admin/conversions/{{ row.id }}/download/png">PNG 다운로드</a><br>{{ row.output_png_path }}{% endif %}
+        </td>
         <td>{{ row.file_size or "" }}</td>
         <td>{{ row.client_ip or "" }}</td>
         <td>{{ row.expires_at }}</td>

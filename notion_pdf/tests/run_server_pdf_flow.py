@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -117,6 +118,61 @@ def verify_pdf(pdf_bytes: bytes, status: dict) -> Path:
     return output_path
 
 
+def verify_persistent_files(job_id: str) -> dict:
+    db_path = ROOT / "instance" / "notion_pdf.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            """
+            SELECT *
+            FROM conversions
+            WHERE output_pdf_path LIKE ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (f"%{job_id}%",),
+        ).fetchone()
+    if not row:
+        raise AssertionError(f"No DB conversion row found for job_id={job_id}")
+
+    input_path = Path(row["input_file_path"])
+    pdf_path = Path(row["output_pdf_path"])
+    txt_path = Path(row["output_txt_path"])
+    png_path = Path(row["output_png_path"])
+    for label, path in {
+        "input": input_path,
+        "pdf": pdf_path,
+        "txt": txt_path,
+        "png": png_path,
+    }.items():
+        if not path.exists():
+            raise AssertionError(f"Expected {label} file: {path}")
+        if label != "txt" and path.stat().st_size <= 0:
+            raise AssertionError(f"Expected non-empty {label} file: {path}")
+    if input_path.parent != ROOT / "uploads":
+        raise AssertionError(f"Expected input file under uploads, got {input_path}")
+    if pdf_path.parent != ROOT / "output":
+        raise AssertionError(f"Expected PDF under output, got {pdf_path}")
+    if txt_path.parent != ROOT / "output":
+        raise AssertionError(f"Expected TXT under output, got {txt_path}")
+    if png_path.parent != ROOT / "output":
+        raise AssertionError(f"Expected PNG under output, got {png_path}")
+
+    admin_response = requests.get(f"{BASE_URL}/admin/conversions", timeout=10)
+    admin_response.raise_for_status()
+    for expected in ("원본 다운로드", "PDF 다운로드", "TXT 다운로드", str(row["id"])):
+        if expected not in admin_response.text:
+            raise AssertionError(f"Admin page missing expected text: {expected}")
+
+    for kind in ("input", "pdf", "txt", "png"):
+        download_response = requests.get(f"{BASE_URL}/admin/conversions/{row['id']}/download/{kind}", timeout=15)
+        download_response.raise_for_status()
+        if kind != "txt" and not download_response.content:
+            raise AssertionError(f"Empty admin download response for {kind}")
+
+    return dict(row)
+
+
 def main() -> int:
     env = os.environ.copy()
     env["PORT"] = str(PORT)
@@ -135,6 +191,7 @@ def main() -> int:
         sample_path = build_sample_html()
         job_id, pdf_bytes, status = create_pdf(sample_path)
         output_path = verify_pdf(pdf_bytes, status)
+        db_row = verify_persistent_files(job_id)
         pages = len(PdfReader(output_path).pages)
         print(f"SERVER_URL={BASE_URL}")
         print(f"JOB_ID={job_id}")
@@ -165,6 +222,11 @@ def main() -> int:
         print(f"OCR_STATUS={status['ocr_status']}")
         print(f"PDF_FILE_SIZE={status['pdf_file_size']}")
         print(f"DEBUG_PNG={status['debug_png_path']}")
+        print(f"DB_CONVERSION_ID={db_row['id']}")
+        print(f"DB_INPUT_FILE={db_row['input_file_path']}")
+        print(f"DB_OUTPUT_PDF={db_row['output_pdf_path']}")
+        print(f"DB_OUTPUT_TXT={db_row['output_txt_path']}")
+        print(f"DB_OUTPUT_PNG={db_row['output_png_path']}")
         return 0
     finally:
         server.terminate()

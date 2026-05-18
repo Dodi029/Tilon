@@ -144,6 +144,11 @@ python tests\run_db_cleanup_validation.py
 - 공개 Notion URL은 브라우저에서 직접 열리는 상태여야 합니다.
 - PDF 업로드를 다시 긴 1페이지로 재렌더링하는 기능은 현재 지원하지 않습니다. HTML 파일 또는 URL을 사용하세요.
 - 생성 파일은 OS 임시 폴더 아래 `notion_pdf` 디렉터리에 저장됩니다.
+- 업로드 원본 파일은 `uploads/` 폴더에 저장됩니다.
+- 변환 결과 PDF, PNG, TXT 파일은 `output/` 폴더에 저장됩니다.
+- DB에는 원본 파일 경로와 결과 파일 경로가 함께 기록됩니다.
+- 관리자 페이지에서 원본, PDF, TXT, PNG 다운로드 링크를 확인할 수 있습니다.
+- `uploads/`와 `output/` 파일은 직접 정적 공개하지 않고 관리자 다운로드 라우트를 통해 제공합니다.
 - 외부 공개 시 개인정보나 민감정보가 포함된 문서를 업로드하지 마세요.
 - 업로드 제한은 기본 `MAX_UPLOAD_MB=50`입니다.
 - Mac mini가 절전 모드로 들어가면 Flask 서버와 Cloudflare Tunnel 연결이 끊길 수 있습니다.

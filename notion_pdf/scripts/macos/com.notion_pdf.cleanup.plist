@@ -8,10 +8,11 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>cd "${HOME}/git/dev/projects/Tilon/notion_pdf" &amp;&amp; source .venv/bin/activate 2&gt;/dev/null || true; cd "${HOME}/git/dev/projects/Tilon/notion_pdf" &amp;&amp; python cleanup_old_records.py</string>
+    <string>/Volumes/mac_ssd/external_disk/Git/dev/projects/Tilon/notion_pdf/scripts/macos/start_cleanup.sh</string>
   </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Volumes/mac_ssd/external_disk/Git/dev/projects/Tilon/notion_pdf</string>
 
   <key>StartCalendarInterval</key>
   <dict>

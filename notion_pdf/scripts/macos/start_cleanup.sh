@@ -9,8 +9,4 @@ if [ -f ".venv/bin/activate" ]; then
   source ".venv/bin/activate"
 fi
 
-export PORT="${PORT:-5000}"
-export FLASK_DEBUG="${FLASK_DEBUG:-0}"
-export MAX_UPLOAD_MB="${MAX_UPLOAD_MB:-50}"
-
-exec python app.py
+exec python cleanup_old_records.py

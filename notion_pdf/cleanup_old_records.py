@@ -8,10 +8,11 @@ from db import delete_expired_records, init_db
 
 ROOT_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = ROOT_DIR / "output"
-UPLOAD_DIR = Path(os.environ.get("NOTION_PDF_UPLOAD_DIR", Path("/tmp") / "notion_pdf"))
+UPLOAD_DIR = ROOT_DIR / "uploads"
 LOG_DIR = ROOT_DIR / "logs"
 LOG_PATH = LOG_DIR / "cleanup.log"
 DEFAULT_RETENTION_DAYS = int(os.environ.get("RETENTION_DAYS", "7"))
+MANAGED_SUFFIXES = {".html", ".htm", ".zip", ".pdf", ".txt", ".png"}
 
 
 def log(message: str) -> None:
@@ -44,7 +45,7 @@ def cleanup_output_files(retention_days: int, dry_run: bool = False) -> int:
         for path in directory.iterdir():
             if not path.is_file():
                 continue
-            if path.suffix.lower() not in {".pdf", ".png", ".txt"}:
+            if path.suffix.lower() not in MANAGED_SUFFIXES:
                 continue
             try:
                 modified = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
@@ -73,8 +74,10 @@ def main() -> int:
     if args.dry_run:
         log("dry-run skip DB deletion")
     for row in expired_rows:
+        deleted_from_db_paths += int(remove_file(row.get("input_file_path")))
         deleted_from_db_paths += int(remove_file(row.get("output_pdf_path")))
         deleted_from_db_paths += int(remove_file(row.get("output_txt_path")))
+        deleted_from_db_paths += int(remove_file(row.get("output_png_path")))
     deleted_old_files = cleanup_output_files(args.retention_days, dry_run=args.dry_run)
     log(
         "cleanup complete "

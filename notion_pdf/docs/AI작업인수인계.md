@@ -128,6 +128,11 @@ quick tunnel은 임시 주소가 바뀔 수 있다. 고정 주소 운영은 name
 
 - DB 파일: `instance/notion_pdf.db`
 - DB 모듈: `db.py`
+- 현재 테이블명: `conversions`
+- `conversion_history` 테이블은 현재 없음
+- 업로드 원본 파일 저장 위치: `uploads/`
+- 변환 결과 저장 위치: `output/`
+- DB 주요 파일 경로 필드: `input_file_path`, `output_pdf_path`, `output_txt_path`, `output_png_path`
 - cleanup 스크립트: `cleanup_old_records.py`
 - cleanup 로그: `logs/cleanup.log`
 - 기본 보관 기간: 7일
@@ -137,6 +142,39 @@ quick tunnel은 임시 주소가 바뀔 수 있다. 고정 주소 운영은 name
 ```bash
 python cleanup_old_records.py
 ```
+
+## 2026-05-18 운영 기능 검증 메모
+
+- 관리자 페이지: `/admin/conversions`
+- 관리자 페이지 HTTP 확인 결과: 200
+- 최근 기록: success/failed 모두 DB에 저장됨
+- DB `output_pdf_path`는 실제 PDF 파일과 연결됨
+- 일반 변환 결과 PDF/TXT는 현재 `output/` 폴더가 아니라 OS 임시 폴더의 `notion_pdf` 디렉터리에 저장됨
+- `/output/<파일명>.pdf` 직접 접근 라우트는 없음, HTTP 404
+- `/download/<job_id>`는 메모리 기반이라 서버 재시작 후 이전 job 다운로드 불가
+- cleanup dry-run 및 실제 실행 통과
+- launchd plist 문법 통과
+- `start_flask.sh`는 테스트 포트에서 직접 실행 확인
+- `start_cloudflare_quick_tunnel.sh`는 실행 권한과 `cloudflared` 경로만 확인, 실제 tunnel 연결은 이번 검증에서 실행하지 않음
+
+다음 AI 작업자는 기능을 고치기 전에 아래 결정을 사용자에게 확인하는 것이 좋다.
+
+1. 테이블명을 `conversions`로 유지할지 `conversion_history`로 변경할지
+2. 변환 산출물을 `output/`에 저장할지 현재 임시 폴더 구조를 유지할지
+3. `/output/<파일명>` 라우트를 만들 경우 인증 또는 만료 토큰을 적용할지
+4. `/admin/conversions` 인증을 우선 추가할지
+
+## 2026-05-18 파일 저장 구조 개선 메모
+
+- HTML 업로드 원본은 `uploads/`에 저장된다.
+- 변환 결과 PDF/PNG/TXT는 `output/`에 저장된다.
+- 파일명은 `secure_filename`, timestamp, job id, UUID 일부를 사용한다.
+- 관리자 페이지 `/admin/conversions`에서 원본/PDF/TXT/PNG 다운로드 링크를 제공한다.
+- 다운로드 라우트는 `/admin/conversions/<id>/download/<kind>` 형식이다.
+- `<kind>`는 `input`, `pdf`, `txt`, `png`만 허용한다.
+- 다운로드 대상은 DB에 저장된 경로이며, `uploads/` 또는 `output/` 하위 파일만 허용한다.
+- cleanup은 만료된 DB 기록의 원본/PDF/TXT/PNG 파일을 함께 삭제한다.
+- 인증은 아직 없으므로 외부 공개 전 관리자 인증 추가가 필요하다.
 
 ## 처음 읽을 문서
 
