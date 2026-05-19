@@ -149,14 +149,14 @@ def verify_persistent_files(job_id: str) -> dict:
             raise AssertionError(f"Expected {label} file: {path}")
         if label != "txt" and path.stat().st_size <= 0:
             raise AssertionError(f"Expected non-empty {label} file: {path}")
-    if input_path.parent != ROOT / "uploads":
+    if ROOT / "uploads" not in input_path.parents:
         raise AssertionError(f"Expected input file under uploads, got {input_path}")
-    if pdf_path.parent != ROOT / "output":
-        raise AssertionError(f"Expected PDF under output, got {pdf_path}")
-    if txt_path.parent != ROOT / "output":
-        raise AssertionError(f"Expected TXT under output, got {txt_path}")
-    if png_path.parent != ROOT / "output":
-        raise AssertionError(f"Expected PNG under output, got {png_path}")
+    if pdf_path.parent != ROOT / "output" / "pdf":
+        raise AssertionError(f"Expected PDF under output/pdf, got {pdf_path}")
+    if txt_path.parent != ROOT / "output" / "txt":
+        raise AssertionError(f"Expected TXT under output/txt, got {txt_path}")
+    if png_path.parent != ROOT / "output" / "png":
+        raise AssertionError(f"Expected PNG under output/png, got {png_path}")
 
     admin_response = requests.get(f"{BASE_URL}/admin/conversions", timeout=10)
     admin_response.raise_for_status()

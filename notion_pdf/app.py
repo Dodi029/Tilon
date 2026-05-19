@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, send_file, render_template_string
 import os, shutil, tempfile, time, threading
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 from werkzeug.utils import secure_filename
 
@@ -15,8 +14,13 @@ UPLOADS_FOLDER = ROOT_DIR / "uploads"
 UPLOADS_FOLDER.mkdir(exist_ok=True)
 OUTPUT_FOLDER = ROOT_DIR / "output"
 OUTPUT_FOLDER.mkdir(exist_ok=True)
-DEBUG_OUTPUT_FOLDER = OUTPUT_FOLDER
-DEBUG_OUTPUT_FOLDER.mkdir(exist_ok=True)
+OUTPUT_PDF_FOLDER = OUTPUT_FOLDER / "pdf"
+OUTPUT_PNG_FOLDER = OUTPUT_FOLDER / "png"
+OUTPUT_TXT_FOLDER = OUTPUT_FOLDER / "txt"
+DEBUG_OUTPUT_FOLDER = OUTPUT_FOLDER / "debug"
+OUTPUT_TESTS_FOLDER = OUTPUT_FOLDER / "tests"
+for folder in (OUTPUT_PDF_FOLDER, OUTPUT_PNG_FOLDER, OUTPUT_TXT_FOLDER, DEBUG_OUTPUT_FOLDER, OUTPUT_TESTS_FOLDER):
+    folder.mkdir(parents=True, exist_ok=True)
 LOG_DIR = ROOT_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 ALLOWED_UPLOAD_EXTENSIONS = {"html", "htm", "zip", "pdf", "txt"}
@@ -704,16 +708,20 @@ def normalize_text_layer_mode(value=None, ocr_enabled: bool = True) -> str:
 def make_timestamped_pdf_path(job_id: str, prefix: str = "notion_export") -> tuple[str, str]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_prefix = secure_filename(prefix) or "notion_export"
-    filename = f"{safe_prefix}_{timestamp}_{job_id}.pdf"
-    return filename, str(OUTPUT_FOLDER / filename)
+    filename = f"{timestamp}_{safe_prefix}_{job_id}.pdf"
+    path = OUTPUT_PDF_FOLDER / filename
+    return filename, str(path)
 
 def make_uploaded_input_path(job_id: str, original_name: str) -> tuple[str, str]:
     safe_name = secure_filename(original_name or "upload")
     ext = Path(safe_name).suffix.lower()
     stem = Path(safe_name).stem or "upload"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stored_name = f"{timestamp}_{job_id}_{uuid4().hex[:8]}_{stem}{ext}"
-    return stored_name, str(UPLOADS_FOLDER / stored_name)
+    month_folder = UPLOADS_FOLDER / datetime.now().strftime("%Y-%m")
+    month_folder.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{timestamp}_{stem}_{job_id}{ext}"
+    path = month_folder / stored_name
+    return stored_name, str(path)
 
 def allowed_upload_extension(filename: str) -> bool:
     ext = Path(filename or "").suffix.lower().lstrip(".")
@@ -730,7 +738,7 @@ def extract_pdf_text_to_file(pdf_path: str) -> str | None:
 
     try:
         text = "\n".join((page.extract_text() or "") for page in PdfReader(pdf_path).pages)
-        txt_path = str(Path(pdf_path).with_suffix(".txt"))
+        txt_path = str(OUTPUT_TXT_FOLDER / f"{Path(pdf_path).stem}.txt")
         Path(txt_path).write_text(text, encoding="utf-8")
         return txt_path
     except Exception as exc:
@@ -1714,7 +1722,7 @@ def save_screenshot_as_single_page_pdf(
     import img2pdf
 
     scale = max(1, min(int(scale), 3))
-    png_path = str(Path(output_path).with_suffix(".png"))
+    png_path = str(OUTPUT_PNG_FOLDER / f"{Path(output_path).stem}.png")
     initial_metrics = get_page_height_metrics(page)
     capture_height = max(initial_metrics["max_height"], 1080)
     page.set_viewport_size({"width": width, "height": capture_height})

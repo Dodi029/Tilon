@@ -130,8 +130,12 @@ quick tunnel은 임시 주소가 바뀔 수 있다. 고정 주소 운영은 name
 - DB 모듈: `db.py`
 - 현재 테이블명: `conversions`
 - `conversion_history` 테이블은 현재 없음
-- 업로드 원본 파일 저장 위치: `uploads/`
-- 변환 결과 저장 위치: `output/`
+- 업로드 원본 파일 저장 위치: `uploads/YYYY-MM/`
+- 변환 PDF 저장 위치: `output/pdf/`
+- 변환 PNG 저장 위치: `output/png/`
+- 추출 TXT 저장 위치: `output/txt/`
+- 디버그 파일 위치: `output/debug/`
+- 테스트 산출물 위치: `output/tests/`
 - DB 주요 파일 경로 필드: `input_file_path`, `output_pdf_path`, `output_txt_path`, `output_png_path`
 - cleanup 스크립트: `cleanup_old_records.py`
 - cleanup 로그: `logs/cleanup.log`
@@ -164,16 +168,22 @@ python cleanup_old_records.py
 3. `/output/<파일명>` 라우트를 만들 경우 인증 또는 만료 토큰을 적용할지
 4. `/admin/conversions` 인증을 우선 추가할지
 
-## 2026-05-18 파일 저장 구조 개선 메모
+## 2026-05-19 output/uploads 구조 개선 메모
 
-- HTML 업로드 원본은 `uploads/`에 저장된다.
-- 변환 결과 PDF/PNG/TXT는 `output/`에 저장된다.
-- 파일명은 `secure_filename`, timestamp, job id, UUID 일부를 사용한다.
+- HTML 업로드 원본은 `uploads/YYYY-MM/`에 저장된다.
+- 변환 결과 PDF는 `output/pdf/`에 저장된다.
+- 변환 결과 PNG는 `output/png/`에 저장된다.
+- 변환 결과 TXT는 `output/txt/`에 저장된다.
+- 디버그 PNG는 `output/debug/`에 저장된다.
+- 검증 산출물은 `output/tests/`에 정리한다.
+- 파일명은 `secure_filename`, timestamp, 원본 이름, 8자리 job id를 사용한다.
+- 현재 파일명 규칙은 `YYYYMMDD_HHMMSS_원본이름_작업ID.ext`이다.
 - 관리자 페이지 `/admin/conversions`에서 원본/PDF/TXT/PNG 다운로드 링크를 제공한다.
 - 다운로드 라우트는 `/admin/conversions/<id>/download/<kind>` 형식이다.
 - `<kind>`는 `input`, `pdf`, `txt`, `png`만 허용한다.
 - 다운로드 대상은 DB에 저장된 경로이며, `uploads/` 또는 `output/` 하위 파일만 허용한다.
 - cleanup은 만료된 DB 기록의 원본/PDF/TXT/PNG 파일을 함께 삭제한다.
+- cleanup은 `uploads/`와 `output/` 하위 폴더를 재귀적으로 확인한다.
 - 인증은 아직 없으므로 외부 공개 전 관리자 인증 추가가 필요하다.
 
 ## 처음 읽을 문서

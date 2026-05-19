@@ -12,6 +12,9 @@ from db import DB_PATH, delete_expired_records, get_connection, init_db, record_
 
 OUTPUT_DIR = ROOT / "output"
 UPLOADS_DIR = ROOT / "uploads"
+OUTPUT_PDF_DIR = OUTPUT_DIR / "pdf"
+OUTPUT_TXT_DIR = OUTPUT_DIR / "txt"
+OUTPUT_PNG_DIR = OUTPUT_DIR / "png"
 
 
 def count_rows(status: str) -> int:
@@ -23,14 +26,18 @@ def count_rows(status: str) -> int:
 def main() -> int:
     OUTPUT_DIR.mkdir(exist_ok=True)
     UPLOADS_DIR.mkdir(exist_ok=True)
+    OUTPUT_PDF_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_TXT_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_PNG_DIR.mkdir(parents=True, exist_ok=True)
     init_db()
 
     now = utc_now()
-    expired_input = UPLOADS_DIR / "cleanup_validation_expired.html"
-    expired_pdf = OUTPUT_DIR / "cleanup_validation_expired.pdf"
-    expired_txt = OUTPUT_DIR / "cleanup_validation_expired.txt"
-    expired_png = OUTPUT_DIR / "cleanup_validation_expired.png"
-    old_png = OUTPUT_DIR / "cleanup_validation_old.png"
+    expired_input = UPLOADS_DIR / "2026-05" / "cleanup_validation_expired.html"
+    expired_input.parent.mkdir(parents=True, exist_ok=True)
+    expired_pdf = OUTPUT_PDF_DIR / "cleanup_validation_expired.pdf"
+    expired_txt = OUTPUT_TXT_DIR / "cleanup_validation_expired.txt"
+    expired_png = OUTPUT_PNG_DIR / "cleanup_validation_expired.png"
+    old_png = OUTPUT_PNG_DIR / "cleanup_validation_old.png"
     for path in (expired_input, expired_pdf, expired_txt, expired_png, old_png):
         path.write_bytes(b"cleanup validation")
         old_time = (now - timedelta(days=8)).timestamp()

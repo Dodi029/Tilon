@@ -42,7 +42,7 @@ def cleanup_output_files(retention_days: int, dry_run: bool = False) -> int:
     for directory in (OUTPUT_DIR, UPLOAD_DIR):
         if not directory.exists():
             continue
-        for path in directory.iterdir():
+        for path in directory.rglob("*"):
             if not path.is_file():
                 continue
             if path.suffix.lower() not in MANAGED_SUFFIXES:

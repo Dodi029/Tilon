@@ -7,5 +7,16 @@ logs/*.log
 logs/*.err.log
 uploads/*
 !uploads/.gitkeep
+!uploads/*/
+uploads/*/*
 output/server-flow_seamless_*
+output/*.pdf
+output/*.png
+output/*.txt
+output/pdf/*
+output/png/*
+output/txt/*
+!output/pdf/.gitkeep
+!output/png/.gitkeep
+!output/txt/.gitkeep
 lsof
