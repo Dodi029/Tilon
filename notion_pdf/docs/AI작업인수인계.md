@@ -48,6 +48,8 @@ C:\dev
 
 - Notion URL 또는 HTML 파일 입력
 - Playwright 렌더링
+- Notion 토글 자동 펼치기 옵션
+- Notion 상단 로그인/가입 배너 제거 옵션
 - `page.pdf()` 미사용
 - `full_page=True` 의존 금지
 - screenshot `clip` 기반 캡처
@@ -70,6 +72,7 @@ C:\dev
 - `v3.0` 안정 기능보다 OCR 개선을 우선하지 말 것
 - OCR/DOM 수정 시 PDF가 빈 페이지가 되면 즉시 중단
 - 기능 깨짐 상태를 성공 처리하지 말 것
+- 토글 전처리 때문에 일반 버튼이나 링크를 무작정 클릭하지 말 것
 
 ## 현재 해결 중인 문제
 
@@ -185,6 +188,18 @@ python cleanup_old_records.py
 - cleanup은 만료된 DB 기록의 원본/PDF/TXT/PNG 파일을 함께 삭제한다.
 - cleanup은 `uploads/`와 `output/` 하위 폴더를 재귀적으로 확인한다.
 - 인증은 아직 없으므로 외부 공개 전 관리자 인증 추가가 필요하다.
+
+## 2026-05-20 v3.5 Notion 전처리 메모
+
+- 기본값으로 Notion 토글 자동 펼치기가 켜져 있다.
+- 기본값으로 Notion 상단 배너 제거가 켜져 있다.
+- 전처리는 Playwright 렌더링 후 screenshot 캡처 전에 실행한다.
+- `details:not([open])`는 `open` 상태로 바꾼다.
+- `aria-expanded="false"`인 Notion toggle 후보는 반복적으로 클릭한다.
+- 토글 처리 후 DOM 높이를 다시 측정해 긴 1페이지 캡처 높이에 반영한다.
+- 배너 제거는 `You're almost there`, `sign up to start building in Notion today`, `Sign up`, `login` 문구와 top chrome 후보를 기준으로 한다.
+- 전처리 실패는 PDF 생성 실패로 전파하지 않고 로그만 남긴다.
+- 검증 테스트: `tests/test_notion_preprocess.py`
 
 ## 처음 읽을 문서
 

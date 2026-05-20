@@ -221,12 +221,18 @@ HTML_PAGE = '''<!DOCTYPE html>
 
   .options {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 0.75rem;
     margin-bottom: 1.5rem;
   }
 
   .option-group label.label { margin-bottom: 0.4rem; }
+  .option-help {
+    color: var(--muted);
+    font-size: 0.7rem;
+    line-height: 1.35;
+    margin-top: 0.35rem;
+  }
 
   select {
     width: 100%;
@@ -432,12 +438,12 @@ HTML_PAGE = '''<!DOCTYPE html>
 
     <!-- 파일 탭 -->
     <div class="panel" id="panel-file">
-      <label class="label">HTML 또는 PDF 파일</label>
+      <label class="label">HTML, PDF, ZIP 또는 TXT 파일</label>
       <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
         <div class="drop-icon">📂</div>
-        <div class="drop-text">클릭하거나 <strong>파일을 여기에 드래그</strong>하세요<br><span style="font-size:0.75rem; margin-top:0.25rem; display:block">지원 형식: .html, .pdf</span></div>
+        <div class="drop-text">클릭하거나 <strong>파일을 여기에 드래그</strong>하세요<br><span style="font-size:0.75rem; margin-top:0.25rem; display:block">지원 형식: .html, .htm, .pdf, .zip, .txt</span></div>
       </div>
-      <input type="file" id="fileInput" accept=".html,.htm,.pdf" onchange="handleFile(this)">
+      <input type="file" id="fileInput" accept=".html,.htm,.pdf,.zip,.txt" onchange="handleFile(this)">
       <div class="file-name" id="fileName">
         <span>✓</span>
         <span id="fileNameText"></span>
@@ -479,6 +485,22 @@ HTML_PAGE = '''<!DOCTYPE html>
           <option value="ocr">OCR</option>
           <option value="none">없음</option>
         </select>
+      </div>
+      <div class="option-group">
+        <label class="label">Notion 토글 자동 펼치기</label>
+        <select id="expandToggles">
+          <option value="1">켜짐</option>
+          <option value="0">꺼짐</option>
+        </select>
+        <div class="option-help">PDF 변환 전 닫혀 있는 Notion 토글을 자동으로 펼쳐 내부 내용까지 포함합니다.</div>
+      </div>
+      <div class="option-group">
+        <label class="label">Notion 상단 배너 제거</label>
+        <select id="removeBanners">
+          <option value="1">켜짐</option>
+          <option value="0">꺼짐</option>
+        </select>
+        <div class="option-help">공개 Notion 페이지의 로그인/가입 안내 배너를 캡처에서 제외합니다.</div>
       </div>
     </div>
 
@@ -567,6 +589,10 @@ async function convert() {
   const layerEl = document.getElementById('textLayerMode');
   const textLayerMode = layerEl ? layerEl.value : 'hybrid';
   const ocr = textLayerMode !== 'none';
+  const expandTogglesEl = document.getElementById('expandToggles');
+  const removeBannersEl = document.getElementById('removeBanners');
+  const expandToggles = expandTogglesEl ? expandTogglesEl.value !== '0' : true;
+  const removeBanners = removeBannersEl ? removeBannersEl.value !== '0' : true;
 
   try {
     let response;
@@ -579,7 +605,7 @@ async function convert() {
       response = await fetch('/convert/url', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale), text_layer_mode: textLayerMode, ocr })
+        body: JSON.stringify({ url, width: parseInt(width), margin: parseInt(margin), scale: parseInt(scale), text_layer_mode: textLayerMode, ocr, expand_toggles: expandToggles, remove_banners: removeBanners })
       });
     } else {
       if (!selectedFile) { alert('파일을 선택해주세요.'); btn.disabled=false; return; }
@@ -591,6 +617,8 @@ async function convert() {
       fd.append('scale', scale);
       fd.append('ocr', ocr ? '1' : '0');
       fd.append('text_layer_mode', textLayerMode);
+      fd.append('expand_toggles', expandToggles ? '1' : '0');
+      fd.append('remove_banners', removeBanners ? '1' : '0');
       response = await fetch('/convert/file', { method: 'POST', body: fd });
     }
 
@@ -963,6 +991,8 @@ def hide_notion_public_banner(page) -> dict:
             "You're almost there",
             "sign up to start building in Notion today",
             "Sign up or login",
+            "Sign up",
+            "login",
         ];
         const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
         const hasBannerText = (el) => {
@@ -1019,6 +1049,138 @@ def hide_notion_public_banner(page) -> dict:
         };
     }""")
     return result or {"removed_count": 0, "removed": [], "remaining_banner_text": []}
+
+def expand_notion_toggles(page, max_passes: int = 8) -> dict:
+    """Expand closed Notion-like toggle blocks before screenshot capture."""
+    total_clicked = 0
+    total_details_opened = 0
+    pass_logs = []
+    for pass_index in range(max_passes):
+        result = page.evaluate("""() => {
+            const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+            const isDocumentRouteLink = (el) => {
+                const href = el.getAttribute && el.getAttribute('href');
+                return !!href;
+            };
+            const isToggleCandidate = (el) => {
+                if (!el || el.dataset.notionPdfToggleExpanded === '1') return false;
+                if (isDocumentRouteLink(el)) return false;
+                const ariaExpanded = (el.getAttribute('aria-expanded') || '').toLowerCase();
+                if (ariaExpanded !== 'false') return false;
+                const role = (el.getAttribute('role') || '').toLowerCase();
+                const tag = el.tagName.toLowerCase();
+                if (role !== 'button' && tag !== 'button' && tag !== 'summary') return false;
+                const text = normalize(el.innerText || el.textContent || '');
+                const classText = [
+                    el.className || '',
+                    el.parentElement ? el.parentElement.className || '' : '',
+                    el.closest('[class]') ? el.closest('[class]').className || '' : '',
+                ].join(' ').toLowerCase();
+                const hasNotionContext = !!el.closest('.notion-toggle, .notion-toggle-block, [data-block-id], [data-content-editable-leaf]');
+                const hasToggleClass = /toggle|collapse|expand|disclosure/.test(classText);
+                const hasControlledRegion = !!el.getAttribute('aria-controls');
+                const hasArrowText = /^[▶▸▾▼]/.test(text);
+                const hasSmallRect = (() => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && rect.width <= 800 && rect.height <= 80;
+                })();
+                return hasSmallRect && (hasNotionContext || hasToggleClass || hasControlledRegion || hasArrowText);
+            };
+
+            const details = Array.from(document.querySelectorAll('details:not([open])'));
+            let detailsOpened = 0;
+            for (const item of details) {
+                if (item.closest('[data-notion-pdf-hidden="1"]')) continue;
+                item.open = true;
+                detailsOpened += 1;
+            }
+
+            const candidates = Array.from(document.querySelectorAll('[aria-expanded="false"], button, [role="button"]'))
+                .filter(isToggleCandidate)
+                .slice(0, 80);
+            let clicked = 0;
+            const clickedItems = [];
+            for (const el of candidates) {
+                const beforeUrl = location.href;
+                try {
+                    el.dataset.notionPdfToggleExpanded = '1';
+                    el.scrollIntoView({block: 'center', inline: 'nearest'});
+                    el.click();
+                    clicked += 1;
+                    clickedItems.push({
+                        tag: el.tagName.toLowerCase(),
+                        text: normalize(el.innerText || el.textContent || '').slice(0, 80),
+                        className: String(el.className || '').slice(0, 120),
+                    });
+                    if (location.href !== beforeUrl && history.length > 1) {
+                        history.back();
+                    }
+                } catch (err) {
+                    clickedItems.push({error: String(err).slice(0, 120)});
+                }
+            }
+            return {
+                clicked,
+                details_opened: detailsOpened,
+                clicked_items: clickedItems,
+                height: Math.max(document.documentElement.scrollHeight || 0, document.body ? document.body.scrollHeight || 0 : 0),
+            };
+        }""")
+        result = result or {"clicked": 0, "details_opened": 0, "clicked_items": [], "height": 0}
+        pass_logs.append({"pass": pass_index + 1, **result})
+        total_clicked += int(result.get("clicked") or 0)
+        total_details_opened += int(result.get("details_opened") or 0)
+        if not result.get("clicked") and not result.get("details_opened"):
+            break
+        page.wait_for_timeout(350)
+    return {
+        "passes": len(pass_logs),
+        "clicked": total_clicked,
+        "details_opened": total_details_opened,
+        "logs": pass_logs,
+    }
+
+def preprocess_page_before_capture(page, expand_toggles: bool = True, remove_banners: bool = True) -> dict:
+    result = {
+        "banner_cleanup": None,
+        "toggle_expansion": None,
+        "errors": [],
+    }
+    if remove_banners:
+        try:
+            before = get_page_height_metrics(page)
+            banner_cleanup = hide_notion_public_banner(page)
+            after = get_page_height_metrics(page)
+            result["banner_cleanup"] = {**banner_cleanup, "before_height": before["max_height"], "after_height": after["max_height"]}
+            if banner_cleanup.get("removed_count") or banner_cleanup.get("remaining_banner_text"):
+                print(
+                    "NOTION_BANNER_CLEANUP="
+                    f"removed:{banner_cleanup.get('removed_count')},"
+                    f"remaining:{banner_cleanup.get('remaining_banner_text')},"
+                    f"height:{before['max_height']}->{after['max_height']}"
+                )
+        except Exception as exc:
+            result["errors"].append(f"banner cleanup failed: {exc}")
+            print(f"NOTION_BANNER_CLEANUP_ERROR={exc}")
+    if expand_toggles:
+        try:
+            before = get_page_height_metrics(page)
+            toggle_expansion = expand_notion_toggles(page)
+            page.wait_for_timeout(500)
+            after = get_page_height_metrics(page)
+            result["toggle_expansion"] = {**toggle_expansion, "before_height": before["max_height"], "after_height": after["max_height"]}
+            if toggle_expansion.get("clicked") or toggle_expansion.get("details_opened"):
+                print(
+                    "NOTION_TOGGLE_EXPANSION="
+                    f"clicked:{toggle_expansion.get('clicked')},"
+                    f"details:{toggle_expansion.get('details_opened')},"
+                    f"passes:{toggle_expansion.get('passes')},"
+                    f"height:{before['max_height']}->{after['max_height']}"
+                )
+        except Exception as exc:
+            result["errors"].append(f"toggle expansion failed: {exc}")
+            print(f"NOTION_TOGGLE_EXPANSION_ERROR={exc}")
+    return result
 
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
@@ -1830,6 +1992,8 @@ def html_to_seamless_pdf(
     scale: int = 2,
     ocr: bool = True,
     text_layer_mode: str | None = None,
+    expand_toggles: bool = True,
+    remove_banners: bool = True,
 ):
     """Convert HTML to a single-page (no page breaks) PDF using Playwright."""
     from playwright.sync_api import sync_playwright
@@ -1855,6 +2019,7 @@ def html_to_seamless_pdf(
             device_scale_factor=max(1, min(int(scale), 3)),
         )
         page.set_content(html_content, wait_until="networkidle")
+        preprocess_page_before_capture(page, expand_toggles=expand_toggles, remove_banners=remove_banners)
         result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr, text_layer_mode)
         browser.close()
         return result
@@ -1867,6 +2032,8 @@ def url_to_seamless_pdf(
     scale: int = 2,
     ocr: bool = True,
     text_layer_mode: str | None = None,
+    expand_toggles: bool = True,
+    remove_banners: bool = True,
 ):
     """Fetch Notion URL and convert to seamless PDF."""
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
@@ -1904,14 +2071,8 @@ def url_to_seamless_pdf(
             stage = "Notion 렌더링 대기"
             page.wait_for_timeout(5000)
 
-            stage = "Notion 상단 배너 제거"
-            banner_cleanup = hide_notion_public_banner(page)
-            if banner_cleanup.get("removed_count") or banner_cleanup.get("remaining_banner_text"):
-                print(
-                    "NOTION_BANNER_CLEANUP="
-                    f"removed:{banner_cleanup.get('removed_count')},"
-                    f"remaining:{banner_cleanup.get('remaining_banner_text')}"
-                )
+            stage = "Notion 캡처 전처리"
+            preprocess_page_before_capture(page, expand_toggles=expand_toggles, remove_banners=remove_banners)
 
             stage = "PDF 스타일 적용"
             page.add_style_tag(content=f"""
@@ -1945,6 +2106,8 @@ def convert_url():
     scale = int(data.get('scale', 2))
     ocr = parse_bool(data.get('ocr'), True)
     text_layer_mode = normalize_text_layer_mode(data.get('text_layer_mode'), ocr)
+    expand_toggles = parse_bool(data.get('expand_toggles'), True)
+    remove_banners = parse_bool(data.get('remove_banners'), True)
     client_ip = get_client_ip()
 
     if not url.startswith('http'):
@@ -1969,7 +2132,7 @@ def convert_url():
         out = None
         try:
             output_filename, out = make_timestamped_pdf_path(job_id)
-            result = url_to_seamless_pdf(url, out, width, margin, scale, ocr, text_layer_mode)
+            result = url_to_seamless_pdf(url, out, width, margin, scale, ocr, text_layer_mode, expand_toggles, remove_banners)
             txt_path = extract_pdf_text_to_file(out)
             safe_record_conversion(
                 source_type="url",
@@ -2012,6 +2175,8 @@ def convert_file():
     scale = int(request.form.get('scale', 2))
     ocr = parse_bool(request.form.get('ocr'), True)
     text_layer_mode = normalize_text_layer_mode(request.form.get('text_layer_mode'), ocr)
+    expand_toggles = parse_bool(request.form.get('expand_toggles'), True)
+    remove_banners = parse_bool(request.form.get('remove_banners'), True)
     client_ip = get_client_ip()
 
     if not f:
@@ -2060,7 +2225,7 @@ def convert_file():
             if ext in ('.html', '.htm'):
                 with open(in_path, 'r', encoding='utf-8', errors='ignore') as fp:
                     html = fp.read()
-                result = html_to_seamless_pdf(html, out, width, margin, scale, ocr, text_layer_mode)
+                result = html_to_seamless_pdf(html, out, width, margin, scale, ocr, text_layer_mode, expand_toggles, remove_banners)
             elif ext == '.pdf':
                 # PDF → re-render as single page via html wrapper trick
                 # Just copy with a note (full re-render from PDF is complex)

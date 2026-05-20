@@ -106,16 +106,27 @@ logs/cleanup.log
 
 1. Flask 서버가 HTML 파일 업로드 또는 공개 URL을 받습니다.
 2. Playwright Chromium이 페이지를 렌더링합니다.
-3. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
-4. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
-5. 가장 큰 높이를 viewport와 screenshot `clip.height`에 명시해 전체 높이 PNG를 캡처합니다.
-6. PNG 높이가 expected height보다 작아도 `max(150px, expected height의 1%)` 안이면 정상으로 처리합니다.
-7. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
-8. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
-9. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
-10. OCR 옵션이 켜져 있고 `ocrmypdf`가 있으면 텍스트 레이어를 추가합니다.
-11. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
-12. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+3. 옵션이 켜져 있으면 닫힌 Notion 토글을 캡처 전에 자동으로 펼칩니다.
+4. 옵션이 켜져 있으면 Notion 공개 페이지의 로그인/가입 상단 배너를 숨깁니다.
+5. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
+6. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
+7. 가장 큰 높이를 viewport와 screenshot `clip.height`에 명시해 전체 높이 PNG를 캡처합니다.
+8. PNG 높이가 expected height보다 작아도 `max(150px, expected height의 1%)` 안이면 정상으로 처리합니다.
+9. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
+10. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
+11. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
+12. OCR/DOM 옵션이 켜져 있으면 텍스트 레이어를 추가합니다.
+13. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+14. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+
+## Notion 전처리 옵션
+
+기본값은 둘 다 켜짐입니다.
+
+- Notion 토글 자동 펼치기: 닫혀 있는 Notion 토글을 캡처 전에 자동으로 펼쳐 내부 내용을 PDF에 포함합니다.
+- Notion 상단 배너 제거: `You're almost there`, `Sign up or login` 같은 공개 페이지 로그인/가입 안내 배너를 캡처에서 제외합니다.
+
+전처리 실패가 발생해도 PDF 생성 자체는 중단하지 않고 로그만 남깁니다. 토글로 판단되는 후보만 처리하지만, Notion DOM 구조가 바뀌면 일부 토글이 남을 수 있습니다.
 
 ## 테스트
 
