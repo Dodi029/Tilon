@@ -715,6 +715,9 @@ PDF_OCR_TIMEOUT_SECONDS = int(os.environ.get("OCR_TIMEOUT_SECONDS", "300"))
 PDF_OCR_CHUNK_HEIGHT_PX = int(os.environ.get("OCR_CHUNK_HEIGHT_PX", "3000"))
 PDF_OCR_CHUNK_OVERLAP_PX = int(os.environ.get("OCR_CHUNK_OVERLAP_PX", "80"))
 PDF_OCR_MIN_TEXT_RATIO = float(os.environ.get("OCR_MIN_TEXT_RATIO", "0.0008"))
+PDF_SCREENSHOT_CHUNK_HEIGHT_PX = int(os.environ.get("SCREENSHOT_CHUNK_HEIGHT_PX", "8000"))
+PDF_SCREENSHOT_CHUNK_RETRIES = int(os.environ.get("SCREENSHOT_CHUNK_RETRIES", "3"))
+PDF_RENDER_STABLE_TIMEOUT_MS = int(os.environ.get("PDF_RENDER_STABLE_TIMEOUT_MS", "45000"))
 
 def make_job_id():
     import uuid
@@ -810,19 +813,26 @@ def get_page_height_metrics(page) -> dict:
             '#root',
             '#__next'
         ];
+        const elementHeight = (el) => {
+            const rect = el.getBoundingClientRect();
+            const top = rect.top + window.scrollY;
+            return Math.ceil(Math.max(
+                el.scrollHeight || 0,
+                el.offsetHeight || 0,
+                el.clientHeight || 0,
+                rect.height || 0,
+                rect.bottom + window.scrollY,
+                top + (el.scrollHeight || 0),
+                top + (el.offsetHeight || 0)
+            ));
+        };
         const wrapperHeights = selectors.flatMap((selector) =>
             Array.from(document.querySelectorAll(selector)).map((el) => {
-                const rect = el.getBoundingClientRect();
-                return Math.ceil(Math.max(
-                    el.scrollHeight || 0,
-                    el.offsetHeight || 0,
-                    rect.bottom + window.scrollY
-                ));
+                return elementHeight(el);
             })
         );
         const elementBottoms = Array.from(document.body.querySelectorAll('*')).map((el) => {
-            const rect = el.getBoundingClientRect();
-            return Math.ceil(rect.bottom + window.scrollY);
+            return elementHeight(el);
         });
         const domScrollHeight = Math.ceil(Math.max(
             doc.scrollHeight || 0,
@@ -872,11 +882,24 @@ def get_content_box_metrics(page) -> dict:
             if (rect.width <= 0 || rect.height <= 0) {
                 return null;
             }
+            const top = rect.top + window.scrollY;
+            const bottom = Math.max(
+                rect.bottom + window.scrollY,
+                top + (el.scrollHeight || 0),
+                top + (el.offsetHeight || 0),
+                top + (el.clientHeight || 0)
+            );
+            const right = Math.max(
+                rect.right + window.scrollX,
+                rect.left + window.scrollX + (el.scrollWidth || 0),
+                rect.left + window.scrollX + (el.offsetWidth || 0),
+                rect.left + window.scrollX + (el.clientWidth || 0)
+            );
             return {
                 left: rect.left + window.scrollX,
-                top: rect.top + window.scrollY,
-                right: rect.right + window.scrollX,
-                bottom: rect.bottom + window.scrollY
+                top,
+                right,
+                bottom
             };
         };
         const wrapperRects = selectors.flatMap((selector) =>
@@ -1181,6 +1204,243 @@ def preprocess_page_before_capture(page, expand_toggles: bool = True, remove_ban
             result["errors"].append(f"toggle expansion failed: {exc}")
             print(f"NOTION_TOGGLE_EXPANSION_ERROR={exc}")
     return result
+
+def wait_for_page_render_stability(page, timeout_ms: int = PDF_RENDER_STABLE_TIMEOUT_MS) -> dict:
+    """Wait for fonts, lazy images, and document height to settle."""
+    start = time.time()
+    image_stats = {"total": 0, "loaded": 0, "incomplete": 0}
+    try:
+        page.evaluate("""async () => {
+            if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+            }
+        }""")
+    except Exception as exc:
+        print(f"FONT_READY_WAIT_ERROR={exc}")
+
+    last_height = 0
+    stable_count = 0
+    scroll_step = 1200
+    while (time.time() - start) * 1000 < timeout_ms:
+        try:
+            metrics = get_page_height_metrics(page)
+            height = max(metrics["max_height"], 1080)
+            for y in range(0, height + scroll_step, scroll_step):
+                page.evaluate("(y) => window.scrollTo(0, y)", y)
+                page.wait_for_timeout(80)
+            page.evaluate("() => window.scrollTo(0, 0)")
+            page.wait_for_timeout(250)
+            image_stats = page.evaluate("""() => {
+                const images = Array.from(document.images || []);
+                return {
+                    total: images.length,
+                    loaded: images.filter((img) => img.complete && img.naturalWidth > 0).length,
+                    incomplete: images.filter((img) => !img.complete || img.naturalWidth <= 0).length,
+                };
+            }""")
+            metrics = get_page_height_metrics(page)
+            current_height = metrics["max_height"]
+            if abs(current_height - last_height) <= 2 and int(image_stats.get("incomplete") or 0) == 0:
+                stable_count += 1
+            else:
+                stable_count = 0
+            last_height = current_height
+            if stable_count >= 2:
+                break
+        except Exception as exc:
+            print(f"RENDER_STABILITY_WAIT_ERROR={exc}")
+            break
+    elapsed_ms = int((time.time() - start) * 1000)
+    print(
+        "RENDER_STABILITY="
+        f"elapsed_ms:{elapsed_ms},"
+        f"height:{last_height},"
+        f"images:{image_stats.get('loaded', 0)}/{image_stats.get('total', 0)},"
+        f"incomplete:{image_stats.get('incomplete', 0)}"
+    )
+    return {"elapsed_ms": elapsed_ms, "height": last_height, **image_stats}
+
+def apply_capture_safety_styles(page) -> dict:
+    """Relax clipping around table/database media before measuring and screenshotting."""
+    result = page.evaluate("""() => {
+        const styleId = 'notion-pdf-capture-safety-style';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+              .notion-collection-view,
+              .notion-table-view,
+              .notion-list-view,
+              .notion-gallery-view,
+              .notion-board-view,
+              [class*="collection"],
+              [class*="table"],
+              [class*="database"],
+              [role="table"],
+              table,
+              tbody,
+              tr,
+              td,
+              th {
+                overflow: visible !important;
+                max-height: none !important;
+                clip-path: none !important;
+                contain: none !important;
+              }
+              img, video, canvas, iframe {
+                max-height: none !important;
+                clip-path: none !important;
+              }
+              [data-notion-pdf-hidden="1"] {
+                display: none !important;
+                visibility: hidden !important;
+              }
+            `;
+            document.head.appendChild(style);
+        }
+        let adjusted = 0;
+        const candidates = Array.from(document.querySelectorAll([
+            '.notion-collection-view',
+            '.notion-table-view',
+            '[class*="collection"]',
+            '[class*="table"]',
+            '[class*="database"]',
+            '[role="table"]',
+            'table',
+            'td',
+            'th'
+        ].join(',')));
+        for (const el of candidates) {
+            const style = window.getComputedStyle(el);
+            if (style.overflow !== 'visible' || style.overflowY !== 'visible' || style.maxHeight !== 'none') {
+                el.dataset.notionPdfOverflowAdjusted = '1';
+                el.style.setProperty('overflow', 'visible', 'important');
+                el.style.setProperty('overflow-y', 'visible', 'important');
+                el.style.setProperty('overflow-x', 'visible', 'important');
+                el.style.setProperty('max-height', 'none', 'important');
+                el.style.setProperty('clip-path', 'none', 'important');
+                el.style.setProperty('contain', 'none', 'important');
+                adjusted += 1;
+            }
+        }
+        return {adjusted};
+    }""")
+    return result or {"adjusted": 0}
+
+def log_potential_clipping_blocks(page, output_path: str) -> list[dict]:
+    logs = page.evaluate("""() => {
+        const rows = [];
+        const candidates = Array.from(document.querySelectorAll([
+            '.notion-collection-view',
+            '.notion-table-view',
+            '[class*="collection"]',
+            '[class*="table"]',
+            '[class*="database"]',
+            '[role="table"]',
+            'table',
+            'td',
+            'th',
+            'img'
+        ].join(',')));
+        for (const el of candidates) {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const clipped = (
+                el.scrollHeight > el.clientHeight + 2 ||
+                el.scrollWidth > el.clientWidth + 2 ||
+                ['hidden', 'clip', 'auto', 'scroll'].includes(style.overflow) ||
+                ['hidden', 'clip', 'auto', 'scroll'].includes(style.overflowY)
+            );
+            if (!clipped && el.tagName.toLowerCase() !== 'img') continue;
+            rows.push({
+                tag: el.tagName.toLowerCase(),
+                className: String(el.className || '').slice(0, 160),
+                top: Math.round(rect.top + window.scrollY),
+                bottom: Math.round(rect.bottom + window.scrollY),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                clientHeight: el.clientHeight || 0,
+                scrollHeight: el.scrollHeight || 0,
+                overflow: style.overflow,
+                overflowY: style.overflowY,
+                src: el.tagName.toLowerCase() === 'img' ? (el.currentSrc || el.src || '').slice(0, 160) : '',
+            });
+            if (rows.length >= 200) break;
+        }
+        return rows;
+    }""")
+    try:
+        import json
+        Path(output_path).write_text(json.dumps(logs, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        print(f"CLIPPING_DEBUG_WRITE_ERROR={exc}")
+    print(f"CLIPPING_DEBUG_BLOCKS={len(logs or [])},path={output_path}")
+    return logs or []
+
+def capture_page_to_png_chunks(page, png_path: str, width: int, height: int, chunk_height: int, scale: int) -> dict:
+    from PIL import Image
+
+    chunk_height = max(1000, int(chunk_height))
+    chunk_dir = DEBUG_OUTPUT_FOLDER / f"chunks_{Path(png_path).stem}"
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    chunk_files = []
+    failures = []
+    page.evaluate("() => window.scrollTo(0, 0)")
+    page.wait_for_timeout(150)
+    for index, y in enumerate(range(0, height, chunk_height)):
+        current_height = min(chunk_height, height - y)
+        chunk_path = chunk_dir / f"chunk_{index:04d}_{y}.png"
+        for attempt in range(1, PDF_SCREENSHOT_CHUNK_RETRIES + 1):
+            try:
+                page.set_viewport_size({"width": width, "height": max(1, current_height)})
+                page.evaluate("(y) => window.scrollTo(0, y)", y)
+                page.wait_for_timeout(180)
+                page.screenshot(
+                    path=str(chunk_path),
+                    type="png",
+                    timeout=max(60000, PDF_RENDER_STABLE_TIMEOUT_MS),
+                )
+                chunk_files.append(chunk_path)
+                print(f"SCREENSHOT_CHUNK index={index} y={y} height={current_height} path={chunk_path}")
+                break
+            except Exception as exc:
+                failures.append({"index": index, "y": y, "height": current_height, "attempt": attempt, "error": str(exc)})
+                print(f"SCREENSHOT_CHUNK_ERROR index={index} y={y} attempt={attempt} error={exc}")
+                page.wait_for_timeout(500 * attempt)
+        else:
+            raise RuntimeError(f"Chunk screenshot failed at index={index}, y={y}, height={current_height}: {failures[-1]['error']}")
+
+    if not chunk_files:
+        raise RuntimeError("No screenshot chunks were captured")
+
+    opened = [Image.open(path).convert("RGB") for path in chunk_files]
+    try:
+        final_width = max(image.width for image in opened)
+        final_height = sum(image.height for image in opened)
+        stitched = Image.new("RGB", (final_width, final_height), PDF_BACKGROUND_COLOR)
+        paste_y = 0
+        for image in opened:
+            stitched.paste(image, (0, paste_y))
+            paste_y += image.height
+        stitched.save(png_path)
+    finally:
+        for image in opened:
+            image.close()
+
+    print(
+        "SCREENSHOT_STITCH="
+        f"chunks:{len(chunk_files)},"
+        f"css_height:{height},"
+        f"png_path:{png_path},"
+        f"chunk_height:{chunk_height},"
+        f"scale:{scale}"
+    )
+    return {
+        "screenshot_chunk_count": len(chunk_files),
+        "screenshot_chunk_height": chunk_height,
+        "screenshot_chunk_failures": failures,
+        "screenshot_chunk_dir": str(chunk_dir),
+    }
 
 def assert_single_page_pdf(pdf_path: str) -> int:
     from pypdf import PdfReader
@@ -1885,23 +2145,33 @@ def save_screenshot_as_single_page_pdf(
 
     scale = max(1, min(int(scale), 3))
     png_path = str(OUTPUT_PNG_FOLDER / f"{Path(output_path).stem}.png")
+    render_stability = wait_for_page_render_stability(page)
+    safety_style_info = apply_capture_safety_styles(page)
+    page.wait_for_timeout(250)
     initial_metrics = get_page_height_metrics(page)
     capture_height = max(initial_metrics["max_height"], 1080)
-    page.set_viewport_size({"width": width, "height": capture_height})
+    viewport_height = min(capture_height, PDF_SCREENSHOT_CHUNK_HEIGHT_PX)
+    page.set_viewport_size({"width": width, "height": max(1080, viewport_height)})
     page.wait_for_timeout(250)
 
     final_metrics = get_page_height_metrics(page)
     content_box = get_content_box_metrics(page)
     capture_height = max(initial_metrics["max_height"], final_metrics["max_height"], content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX, 1080)
-    page.set_viewport_size({"width": width, "height": capture_height})
+    viewport_height = min(capture_height, PDF_SCREENSHOT_CHUNK_HEIGHT_PX)
+    page.set_viewport_size({"width": width, "height": max(1080, viewport_height)})
     page.wait_for_timeout(250)
     content_box = get_content_box_metrics(page)
     capture_height = max(capture_height, content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX)
     dom_text_items = get_dom_text_layer_items(page)
-    page.screenshot(
-        path=png_path,
-        type="png",
-        clip={"x": 0, "y": 0, "width": width, "height": capture_height},
+    clipping_debug_path = DEBUG_OUTPUT_FOLDER / f"{Path(output_path).stem}_clipping_blocks.json"
+    clipping_blocks = log_potential_clipping_blocks(page, str(clipping_debug_path))
+    chunk_info = capture_page_to_png_chunks(
+        page,
+        png_path,
+        width=width,
+        height=capture_height,
+        chunk_height=PDF_SCREENSHOT_CHUNK_HEIGHT_PX,
+        scale=scale,
     )
 
     original_image_width, original_image_height = get_png_size(png_path)
@@ -1962,6 +2232,11 @@ def save_screenshot_as_single_page_pdf(
         "height_difference": height_difference,
         "allowed_tolerance": allowed_tolerance,
         "scale": scale,
+        "render_stability": render_stability,
+        "capture_safety_adjusted": safety_style_info.get("adjusted", 0),
+        "clipping_debug_path": str(clipping_debug_path),
+        "clipping_debug_blocks": len(clipping_blocks),
+        **chunk_info,
         **text_layer_info,
         "dom_text_nodes": len(dom_text_items),
         "original_image_width": original_image_width,

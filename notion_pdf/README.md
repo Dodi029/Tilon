@@ -108,16 +108,39 @@ logs/cleanup.log
 2. Playwright Chromium이 페이지를 렌더링합니다.
 3. 옵션이 켜져 있으면 닫힌 Notion 토글을 캡처 전에 자동으로 펼칩니다.
 4. 옵션이 켜져 있으면 Notion 공개 페이지의 로그인/가입 상단 배너를 숨깁니다.
-5. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
-6. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
-7. 가장 큰 높이를 viewport와 screenshot `clip.height`에 명시해 전체 높이 PNG를 캡처합니다.
-8. PNG 높이가 expected height보다 작아도 `max(150px, expected height의 1%)` 안이면 정상으로 처리합니다.
-9. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
-10. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
-11. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
-12. OCR/DOM 옵션이 켜져 있으면 텍스트 레이어를 추가합니다.
-13. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
-14. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+5. 폰트와 이미지 로딩을 기다리고, lazy-loaded 이미지를 위해 페이지를 스크롤합니다.
+6. table/database 영역의 clipping을 줄이기 위해 캡처 안전 스타일을 적용합니다.
+7. A4 기준 폭 `794px`로 viewport와 본문 폭을 맞춥니다.
+8. DOM, body, Notion wrapper 후보, 실제 element bottom 값을 모두 측정합니다.
+9. 긴 페이지는 내부적으로 chunk PNG로 나누어 캡처한 뒤 하나의 긴 PNG로 stitch합니다.
+10. PNG 높이가 expected height보다 작아도 `max(150px, expected height의 1%)` 안이면 정상으로 처리합니다.
+11. 실제 콘텐츠 bounding box를 기준으로 PNG 하단 빈 공간을 제거합니다.
+12. 좌우 여백이 같아지도록 콘텐츠를 A4 폭 안에서 중앙 정렬합니다.
+13. `img2pdf`가 보정된 PNG 크기 비율 그대로 1페이지 PDF로 변환합니다.
+14. OCR/DOM 옵션이 켜져 있으면 텍스트 레이어를 추가합니다.
+15. `pypdf`로 PDF 페이지 수가 반드시 1페이지인지 검증합니다.
+16. PDF 페이지 크기 비율이 PNG 크기 비율과 맞는지 검증합니다.
+
+## 긴 페이지 안정화
+
+긴 문서는 내부적으로 `SCREENSHOT_CHUNK_HEIGHT_PX` 기준 chunk로 캡처합니다. 기본값은 `8000px`입니다.
+
+```bash
+SCREENSHOT_CHUNK_HEIGHT_PX=8000
+PDF_RENDER_STABLE_TIMEOUT_MS=45000
+```
+
+각 chunk는 `output/debug/chunks_*` 아래 디버그 파일로 남을 수 있으며, 최종 결과는 `output/png/`의 하나의 긴 PNG로 stitch됩니다. 최종 PDF는 계속 1페이지입니다.
+
+캡처 전에는 다음 안정화 처리를 수행합니다.
+
+- `document.fonts.ready` 대기
+- `img.complete` 및 `naturalWidth > 0` 확인
+- lazy-load 이미지 로딩을 위한 강제 스크롤
+- table/database 주변 `overflow`, `max-height`, `clip-path`, `contain` 완화
+- clipping 후보 bounding box를 `output/debug/*_clipping_blocks.json`에 기록
+
+일부 Notion 가상 스크롤 database나 외부 iframe은 브라우저 렌더링 방식에 따라 여전히 완전 캡처가 어려울 수 있습니다.
 
 ## Notion 전처리 옵션
 

@@ -16,7 +16,10 @@ output/*.txt
 output/pdf/*
 output/png/*
 output/txt/*
+output/debug/chunks_*/
+output/debug/*_clipping_blocks.json
 !output/pdf/.gitkeep
 !output/png/.gitkeep
 !output/txt/.gitkeep
+!output/debug/.gitkeep
 lsof

@@ -201,6 +201,19 @@ python cleanup_old_records.py
 - 전처리 실패는 PDF 생성 실패로 전파하지 않고 로그만 남긴다.
 - 검증 테스트: `tests/test_notion_preprocess.py`
 
+## 2026-05-21 v3.6 긴 페이지 안정화 메모
+
+- 단일 대형 screenshot 대신 chunk 캡처 후 stitch 구조를 사용한다.
+- 기본 chunk 높이는 `SCREENSHOT_CHUNK_HEIGHT_PX=8000`이다.
+- chunk 캡처는 `page.screenshot()`의 viewport 캡처를 사용하며 `full_page=True`는 사용하지 않는다.
+- stitch는 Pillow로 수행하고 최종 PNG는 `output/png/`에 저장한다.
+- 최종 PDF는 계속 1페이지다.
+- 캡처 전 `document.fonts.ready`, 이미지 로딩, lazy-load 스크롤, DOM 높이 안정화 대기를 수행한다.
+- table/database clipping 완화를 위해 overflow/max-height/clip-path/contain 안전 스타일을 적용한다.
+- clipping 후보 bounding box는 `output/debug/*_clipping_blocks.json`에 기록한다.
+- chunk 실패 시 retry 후 실패 chunk index/y/height를 로그에 남긴다.
+- 관련 테스트: `tests/test_notion_preprocess.py`
+
 ## 처음 읽을 문서
 
 - `docs/현재상태.md`

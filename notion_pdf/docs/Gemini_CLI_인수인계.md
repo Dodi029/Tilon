@@ -140,6 +140,12 @@ v3.5 기준 추가 기능:
 - 두 기능은 캡처 전 Playwright DOM 전처리로 수행한다.
 - 전처리 실패 시 PDF 생성은 계속되어야 한다.
 
+v3.6 기준 추가 기능:
+- 긴 페이지는 chunk 단위로 캡처한 뒤 하나의 긴 PNG로 stitch한다.
+- `page.pdf()`와 `full_page=True`는 계속 사용 금지다.
+- table/database 이미지 잘림 완화를 위해 이미지 로딩 대기와 overflow clipping 완화 스타일을 적용한다.
+- chunk/debug 로그는 `output/debug/`에 남긴다.
+
 현재 진행 중인 작업:
 - Notion 상단 로그인/가입 배너 제거
 - 선택되지 않는 본문 텍스트 줄이기
