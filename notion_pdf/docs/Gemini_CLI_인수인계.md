@@ -146,6 +146,13 @@ v3.6 기준 추가 기능:
 - table/database 이미지 잘림 완화를 위해 이미지 로딩 대기와 overflow clipping 완화 스타일을 적용한다.
 - chunk/debug 로그는 `output/debug/`에 남긴다.
 
+v3.7 기준 추가 기능:
+- Notion 서비스 배너 제거 조건을 정확한 배너 문구 중심으로 축소했다.
+- 단독 `Sign up`, `login` 또는 모든 `header/nav/fixed/sticky` 요소를 광범위하게 제거하지 마라.
+- 문서 제목/properties 영역(`TOS 점검 업무 매뉴얼`, `구분`, `날짜`, `작성자`, `속성`)은 캡처에 포함되어야 한다.
+- 캡처 직전 `content_top`, `crop_top`, `first_visible_text`, `first_visible_text_y` 로그를 확인한다.
+- 전처리 전/후 debug screenshot은 `output/debug/*_preprocess_before.png`, `output/debug/*_preprocess_after.png`에 저장된다.
+
 현재 진행 중인 작업:
 - Notion 상단 로그인/가입 배너 제거
 - 선택되지 않는 본문 텍스트 줄이기

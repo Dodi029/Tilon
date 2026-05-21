@@ -1014,34 +1014,56 @@ def hide_notion_public_banner(page) -> dict:
             "You're almost there",
             "sign up to start building in Notion today",
             "Sign up or login",
-            "Sign up",
-            "login",
         ];
         const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
-        const hasBannerText = (el) => {
+        const matchingPhrases = (el) => {
             const text = normalize(el.innerText || el.textContent || '');
-            return phrases.some((phrase) => text.includes(phrase));
+            return phrases.filter((phrase) => text.includes(phrase));
         };
-        const isDocumentContent = (el) => {
-            return !!el.closest('main, article, .notion-page-content, .notion-page-content-inner');
+        const hasDocumentSignals = (el) => {
+            if (!el) return false;
+            const selector = [
+                'main',
+                'article',
+                '.notion-page-content',
+                '.notion-page-content-inner',
+                '[data-block-id]',
+                '[contenteditable="true"]',
+                'h1',
+                'h2',
+                'h3'
+            ].join(',');
+            return !!el.matches(selector) || !!el.querySelector(selector);
         };
-        const containsDocumentContent = (el) => {
-            return !!el.querySelector('main, article, .notion-page-content, .notion-page-content-inner');
+        const getBox = (el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return {
+                tag: el.tagName.toLowerCase(),
+                role: el.getAttribute('role') || '',
+                text: normalize(el.innerText || el.textContent || '').slice(0, 180),
+                phrases: matchingPhrases(el),
+                top: Math.round(rect.top + window.scrollY),
+                left: Math.round(rect.left + window.scrollX),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                position: style.position,
+                className: String(el.className || '').slice(0, 160),
+            };
         };
-        const candidates = Array.from(document.querySelectorAll([
-            '[role="banner"]',
-            'header',
-            'nav',
-            '[style*="position: fixed"]',
-            '[style*="position:fixed"]',
-            '[style*="position: sticky"]',
-            '[style*="position:sticky"]',
-        ].join(',')));
+        const phraseNodes = Array.from(document.querySelectorAll('body *'))
+            .filter((el) => matchingPhrases(el).length > 0);
+        const candidateSet = new Set();
+        for (const el of phraseNodes) {
+            const chrome = el.closest('[role="banner"], header, nav');
+            candidateSet.add(chrome || el);
+        }
+        const candidates = Array.from(candidateSet);
+        const detected = candidates.map(getBox);
         const removed = [];
         for (const el of candidates) {
             if (!el || el.dataset.notionPdfHidden === '1') continue;
-            if (!hasBannerText(el)) continue;
-            if (isDocumentContent(el) || containsDocumentContent(el)) continue;
+            if (!matchingPhrases(el).length) continue;
             const rect = el.getBoundingClientRect();
             const style = window.getComputedStyle(el);
             const isTopChrome = (
@@ -1050,28 +1072,108 @@ def hide_notion_public_banner(page) -> dict:
                 ['fixed', 'sticky'].includes(style.position)
             );
             if (!isTopChrome) continue;
+            if (hasDocumentSignals(el)) continue;
             if (rect.top > 320 && !['fixed', 'sticky'].includes(style.position)) continue;
             if (rect.height > Math.max(220, window.innerHeight * 0.35)) continue;
+            const beforeBox = getBox(el);
             el.dataset.notionPdfHidden = '1';
             el.style.setProperty('display', 'none', 'important');
             el.style.setProperty('visibility', 'hidden', 'important');
-            removed.push({
-                tag: el.tagName.toLowerCase(),
-                role: el.getAttribute('role') || '',
-                text: normalize(el.innerText || el.textContent || '').slice(0, 180),
-                top: rect.top + window.scrollY,
-                height: rect.height,
-                position: style.position,
-            });
+            removed.push(beforeBox);
         }
         const remainingText = normalize(document.body ? document.body.innerText : '');
         return {
+            detected_count: detected.length,
+            detected,
             removed_count: removed.length,
             removed,
             remaining_banner_text: phrases.filter((phrase) => remainingText.includes(phrase)),
         };
     }""")
-    return result or {"removed_count": 0, "removed": [], "remaining_banner_text": []}
+    return result or {"detected_count": 0, "detected": [], "removed_count": 0, "removed": [], "remaining_banner_text": []}
+
+def capture_debug_viewport(page, name: str) -> str | None:
+    try:
+        DEBUG_OUTPUT_FOLDER.mkdir(parents=True, exist_ok=True)
+        path = DEBUG_OUTPUT_FOLDER / name
+        page.evaluate("() => window.scrollTo(0, 0)")
+        page.wait_for_timeout(100)
+        page.screenshot(path=str(path), type="png", timeout=60000)
+        return str(path)
+    except Exception as exc:
+        print(f"DEBUG_SCREENSHOT_ERROR={name}:{exc}")
+        return None
+
+def get_first_visible_content_info(page) -> dict:
+    info = page.evaluate("""() => {
+        const normalize = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+        const isVisibleElement = (el) => {
+            if (!el || !el.isConnected) return false;
+            if (el.closest('[data-notion-pdf-hidden="1"], script, style, noscript')) return false;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity || '1') === 0) {
+                return false;
+            }
+            return true;
+        };
+        const textItems = [];
+        const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+                const text = normalize(node.textContent || '');
+                if (!text) return NodeFilter.FILTER_REJECT;
+                const parent = node.parentElement;
+                if (!isVisibleElement(parent)) return NodeFilter.FILTER_REJECT;
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        while (walker.nextNode()) {
+            const node = walker.currentNode;
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const rects = Array.from(range.getClientRects())
+                .filter((rect) => rect.width > 0 && rect.height > 0)
+                .map((rect) => ({
+                    text: normalize(node.textContent || ''),
+                    top: rect.top + window.scrollY,
+                    left: rect.left + window.scrollX,
+                    width: rect.width,
+                    height: rect.height,
+                }));
+            range.detach();
+            textItems.push(...rects);
+        }
+        const mediaItems = Array.from(document.querySelectorAll('img, video, canvas, svg'))
+            .filter(isVisibleElement)
+            .map((el) => {
+                const rect = el.getBoundingClientRect();
+                return {
+                    text: el.getAttribute('alt') || el.getAttribute('aria-label') || el.tagName.toLowerCase(),
+                    top: rect.top + window.scrollY,
+                    left: rect.left + window.scrollX,
+                    width: rect.width,
+                    height: rect.height,
+                };
+            })
+            .filter((item) => item.width > 0 && item.height > 0);
+        const items = textItems.concat(mediaItems)
+            .filter((item) => item.top >= 0)
+            .sort((a, b) => (a.top - b.top) || (a.left - b.left));
+        const first = items[0] || null;
+        return {
+            content_top: first ? Math.round(first.top) : 0,
+            crop_top: 0,
+            first_visible_text: first ? String(first.text || '').slice(0, 160) : '',
+            first_visible_text_y: first ? Math.round(first.top) : null,
+            first_visible_item_count: items.length,
+        };
+    }""")
+    return info or {
+        "content_top": 0,
+        "crop_top": 0,
+        "first_visible_text": "",
+        "first_visible_text_y": None,
+        "first_visible_item_count": 0,
+    }
 
 def expand_notion_toggles(page, max_passes: int = 8) -> dict:
     """Expand closed Notion-like toggle blocks before screenshot capture."""
@@ -1163,12 +1265,21 @@ def expand_notion_toggles(page, max_passes: int = 8) -> dict:
         "logs": pass_logs,
     }
 
-def preprocess_page_before_capture(page, expand_toggles: bool = True, remove_banners: bool = True) -> dict:
+def preprocess_page_before_capture(
+    page,
+    expand_toggles: bool = True,
+    remove_banners: bool = True,
+    debug_stem: str | None = None,
+) -> dict:
     result = {
         "banner_cleanup": None,
         "toggle_expansion": None,
+        "debug_before_screenshot": None,
+        "debug_after_screenshot": None,
         "errors": [],
     }
+    safe_stem = secure_filename(debug_stem or "preprocess") or "preprocess"
+    result["debug_before_screenshot"] = capture_debug_viewport(page, f"{safe_stem}_preprocess_before.png")
     if remove_banners:
         try:
             before = get_page_height_metrics(page)
@@ -1178,10 +1289,12 @@ def preprocess_page_before_capture(page, expand_toggles: bool = True, remove_ban
             if banner_cleanup.get("removed_count") or banner_cleanup.get("remaining_banner_text"):
                 print(
                     "NOTION_BANNER_CLEANUP="
+                    f"detected:{banner_cleanup.get('detected_count')},"
                     f"removed:{banner_cleanup.get('removed_count')},"
                     f"remaining:{banner_cleanup.get('remaining_banner_text')},"
                     f"height:{before['max_height']}->{after['max_height']}"
                 )
+                print(f"NOTION_BANNER_BOXES={banner_cleanup.get('removed') or banner_cleanup.get('detected')}")
         except Exception as exc:
             result["errors"].append(f"banner cleanup failed: {exc}")
             print(f"NOTION_BANNER_CLEANUP_ERROR={exc}")
@@ -1203,6 +1316,11 @@ def preprocess_page_before_capture(page, expand_toggles: bool = True, remove_ban
         except Exception as exc:
             result["errors"].append(f"toggle expansion failed: {exc}")
             print(f"NOTION_TOGGLE_EXPANSION_ERROR={exc}")
+    result["debug_after_screenshot"] = capture_debug_viewport(page, f"{safe_stem}_preprocess_after.png")
+    try:
+        page.evaluate("(value) => { window.__notionPdfPreprocessResult = value; }", result)
+    except Exception as exc:
+        print(f"PREPROCESS_RESULT_STORE_ERROR={exc}")
     return result
 
 def wait_for_page_render_stability(page, timeout_ms: int = PDF_RENDER_STABLE_TIMEOUT_MS) -> dict:
@@ -2156,6 +2274,18 @@ def save_screenshot_as_single_page_pdf(
 
     final_metrics = get_page_height_metrics(page)
     content_box = get_content_box_metrics(page)
+    first_visible_info = get_first_visible_content_info(page)
+    try:
+        preprocess_info = page.evaluate("() => window.__notionPdfPreprocessResult || {}")
+    except Exception:
+        preprocess_info = {}
+    print(
+        "NOTION_CAPTURE_TOP="
+        f"content_top:{first_visible_info.get('content_top')},"
+        f"crop_top:{first_visible_info.get('crop_top')},"
+        f"first_visible_text:{first_visible_info.get('first_visible_text')},"
+        f"first_visible_text_y:{first_visible_info.get('first_visible_text_y')}"
+    )
     capture_height = max(initial_metrics["max_height"], final_metrics["max_height"], content_box["bottom"] + PDF_MIN_BOTTOM_MARGIN_PX, 1080)
     viewport_height = min(capture_height, PDF_SCREENSHOT_CHUNK_HEIGHT_PX)
     page.set_viewport_size({"width": width, "height": max(1080, viewport_height)})
@@ -2233,6 +2363,12 @@ def save_screenshot_as_single_page_pdf(
         "allowed_tolerance": allowed_tolerance,
         "scale": scale,
         "render_stability": render_stability,
+        "preprocess": preprocess_info,
+        "banner_detected_count": (preprocess_info.get("banner_cleanup") or {}).get("detected_count", 0),
+        "banner_removed_count": (preprocess_info.get("banner_cleanup") or {}).get("removed_count", 0),
+        "banner_boxes": (preprocess_info.get("banner_cleanup") or {}).get("removed")
+        or (preprocess_info.get("banner_cleanup") or {}).get("detected", []),
+        **first_visible_info,
         "capture_safety_adjusted": safety_style_info.get("adjusted", 0),
         "clipping_debug_path": str(clipping_debug_path),
         "clipping_debug_blocks": len(clipping_blocks),
@@ -2294,7 +2430,12 @@ def html_to_seamless_pdf(
             device_scale_factor=max(1, min(int(scale), 3)),
         )
         page.set_content(html_content, wait_until="networkidle")
-        preprocess_page_before_capture(page, expand_toggles=expand_toggles, remove_banners=remove_banners)
+        preprocess_page_before_capture(
+            page,
+            expand_toggles=expand_toggles,
+            remove_banners=remove_banners,
+            debug_stem=Path(output_path).stem,
+        )
         result = save_screenshot_as_single_page_pdf(page, output_path, pdf_width, scale, ocr, text_layer_mode)
         browser.close()
         return result
@@ -2347,7 +2488,12 @@ def url_to_seamless_pdf(
             page.wait_for_timeout(5000)
 
             stage = "Notion 캡처 전처리"
-            preprocess_page_before_capture(page, expand_toggles=expand_toggles, remove_banners=remove_banners)
+            preprocess_page_before_capture(
+                page,
+                expand_toggles=expand_toggles,
+                remove_banners=remove_banners,
+                debug_stem=Path(output_path).stem,
+            )
 
             stage = "PDF 스타일 적용"
             page.add_style_tag(content=f"""

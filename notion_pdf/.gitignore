@@ -18,6 +18,7 @@ output/png/*
 output/txt/*
 output/debug/chunks_*/
 output/debug/*_clipping_blocks.json
+output/debug/*_preprocess_*.png
 !output/pdf/.gitkeep
 !output/png/.gitkeep
 !output/txt/.gitkeep

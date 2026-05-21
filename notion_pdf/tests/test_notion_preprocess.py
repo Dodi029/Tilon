@@ -119,6 +119,80 @@ class NotionPreprocessTests(unittest.TestCase):
         self.assertGreater(result["clipping_debug_blocks"], 0)
         self.assertIn("LAST_LONG_TABLE_LINE", text)
 
+    def test_preserves_notion_page_header_properties_after_banner_cleanup(self):
+        html = """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; color: #111; margin: 0; }
+    .public-banner {
+      position: sticky;
+      top: 0;
+      background: #fff3cd;
+      padding: 14px 20px;
+      border-bottom: 1px solid #e6c35c;
+    }
+    header.notion-page-header {
+      padding: 32px 48px 20px;
+      background: #fff;
+    }
+    .properties {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 10px 16px;
+      margin-top: 20px;
+      color: #333;
+    }
+    .divider { border-top: 1px solid #ddd; margin: 28px 48px; }
+    main.notion-page-content { padding: 0 48px 900px; }
+  </style>
+</head>
+<body>
+  <header role="banner" class="public-banner">You're almost there - sign up to start building in Notion today. Sign up or login</header>
+  <header class="notion-page-header">
+    <h1>TOS 점검 업무 매뉴얼</h1>
+    <section class="properties">
+      <strong>구분</strong><span>운영 매뉴얼</span>
+      <strong>날짜</strong><span>2026-05-21</span>
+      <strong>작성자</strong><span>인프라팀</span>
+      <strong>속성</strong><span>속성 5개 더 보기</span>
+    </section>
+  </header>
+  <div class="divider"></div>
+  <main class="notion-page-content">
+    <h2>TOS 관리서버 접속</h2>
+    <p>상단 제목과 속성 영역이 캡처 시작 위치에 포함되어야 합니다.</p>
+  </main>
+</body>
+</html>"""
+        output_path = Path(tempfile.gettempdir()) / "notion_pdf_header_properties_test.pdf"
+        result = html_to_seamless_pdf(
+            html,
+            str(output_path),
+            width=PDF_WIDTH_PX,
+            margin=40,
+            scale=1,
+            ocr=False,
+            text_layer_mode="dom",
+            expand_toggles=True,
+            remove_banners=True,
+        )
+        text = "\n".join((page.extract_text() or "") for page in PdfReader(output_path).pages)
+        self.assertEqual(result["pages"], 1)
+        self.assertEqual(result["banner_removed_count"], 1)
+        self.assertEqual(result["crop_top"], 0)
+        self.assertIn("TOS 점검 업무 매뉴얼", text)
+        self.assertIn("구분", text)
+        self.assertIn("날짜", text)
+        self.assertIn("작성자", text)
+        self.assertIn("속성", text)
+        self.assertIn("TOS 관리서버 접속", text)
+        self.assertNotIn("You're almost there", text)
+        self.assertNotIn("Sign up or login", text)
+        self.assertNotIn("sign up to start building in Notion today", text)
+        self.assertIn("TOS 점검 업무 매뉴얼", result["first_visible_text"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -197,7 +197,8 @@ python cleanup_old_records.py
 - `details:not([open])`는 `open` 상태로 바꾼다.
 - `aria-expanded="false"`인 Notion toggle 후보는 반복적으로 클릭한다.
 - 토글 처리 후 DOM 높이를 다시 측정해 긴 1페이지 캡처 높이에 반영한다.
-- 배너 제거는 `You're almost there`, `sign up to start building in Notion today`, `Sign up`, `login` 문구와 top chrome 후보를 기준으로 한다.
+- 배너 제거는 `You're almost there`, `sign up to start building in Notion today`, `Sign up or login` 문구가 있는 실제 Notion 서비스 배너만 대상으로 한다.
+- 단독 `Sign up`, `login` 또는 모든 `header/nav/fixed/sticky` 요소를 광범위하게 제거하면 문서 제목/properties가 잘릴 수 있으므로 금지한다.
 - 전처리 실패는 PDF 생성 실패로 전파하지 않고 로그만 남긴다.
 - 검증 테스트: `tests/test_notion_preprocess.py`
 
@@ -213,6 +214,15 @@ python cleanup_old_records.py
 - clipping 후보 bounding box는 `output/debug/*_clipping_blocks.json`에 기록한다.
 - chunk 실패 시 retry 후 실패 chunk index/y/height를 로그에 남긴다.
 - 관련 테스트: `tests/test_notion_preprocess.py`
+
+## 2026-05-21 v3.7 Notion 문서 상단 보존 메모
+
+- v3.7은 배너 제거 때문에 문서 제목/properties가 잘리는 문제를 방지하는 수정이다.
+- 실제 문서 상단 metadata 예: `TOS 점검 업무 매뉴얼`, `구분`, `날짜`, `작성자`, `속성`, `TOS 관리서버 접속`.
+- 배너 제거 후에도 위 문구는 DOM/PDF 추출 텍스트에 남아야 한다.
+- 캡처 직전 `NOTION_CAPTURE_TOP=content_top,crop_top,first_visible_text,first_visible_text_y` 로그가 출력된다.
+- 배너 탐지/제거 box는 `NOTION_BANNER_BOXES` 로그로 확인한다.
+- 전처리 전/후 debug screenshot은 `output/debug/*_preprocess_before.png`, `output/debug/*_preprocess_after.png`에 저장된다.
 
 ## 처음 읽을 문서
 
